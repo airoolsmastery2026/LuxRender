@@ -1,0 +1,8 @@
+{
+  "name": "LuxRender",
+  "description": "Ultra premium real estate video app. Create cinematic walkthroughs in 8K.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
