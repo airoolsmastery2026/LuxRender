@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DHP Design OS</title>
+  <style>
+    :root { font-family: Inter, system-ui, sans-serif; color: #eef2f7; background: #0d1726; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    button, input { font: inherit; }
+    .shell { padding: 16px; display: grid; gap: 12px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand { font-weight: 700; letter-spacing: .02em; }
+    .status { font-size: 12px; color: #93a4b8; }
+    .card { background: #142238; border: 1px solid #243955; border-radius: 14px; overflow: hidden; }
+    .drawer-button { width: 100%; border: 0; color: inherit; background: transparent; padding: 14px; display: flex; justify-content: space-between; cursor: pointer; }
+    .drawer-content { display: none; padding: 0 14px 14px; }
+    .card[data-open="true"] .drawer-content { display: block; }
+    .dropzone { border: 1px dashed #6682a4; border-radius: 12px; padding: 22px 12px; text-align: center; color: #b7c5d6; }
+    .dropzone.dragging { background: #1d3150; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin-top: 12px; }
+    .actions { display: grid; gap: 8px; margin-top: 12px; }
+    input[type="range"] { width: 100%; }
+    .value { min-width: 70px; text-align: right; color: #d6b35f; }
+    .primary, .secondary { width: 100%; border-radius: 10px; padding: 11px; font-weight: 700; cursor: pointer; }
+    .primary { border: 0; background: #d6b35f; color: #101827; }
+    .secondary { border: 1px solid #3a5272; background: #182b46; color: #eef2f7; }
+    .primary:disabled, .secondary:disabled { opacity: .5; cursor: wait; }
+    .result { margin-top: 10px; padding: 10px; border-radius: 10px; background: #0d1726; color: #b7c5d6; font-size: 12px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div><div class="brand">DHP Design OS</div><div id="project" class="status">Đang kết nối SketchUp…</div></div>
+      <div id="connection" class="status">Local</div>
+    </header>
+
+    <section class="card" data-open="true">
+      <button class="drawer-button" type="button"><span>Ảnh hiện trạng</span><span>⌄</span></button>
+      <div class="drawer-content"><div id="dropzone" class="dropzone" tabindex="0">Kéo ảnh JPG/PNG vào đây<br><small>Ảnh được giữ local trong dự án</small></div></div>
+    </section>
+
+    <section class="card" data-open="true">
+      <button class="drawer-button" type="button"><span>Kích thước tham số</span><span>⌄</span></button>
+      <div class="drawer-content">
+        <label>Chiều rộng</label>
+        <div class="row"><input id="width" type="range" min="600" max="3600" step="10" value="1800" /><output id="widthValue" class="value">1800 mm</output></div>
+        <p class="status">Kéo để xem trước; chỉ cập nhật hình học khi thả tay.</p>
+      </div>
+    </section>
+
+    <section class="card" data-open="true">
+      <button class="drawer-button" type="button"><span>DHP AI Control Plane</span><span>⌄</span></button>
+      <div class="drawer-content">
+        <div id="cpStatus" class="status">Đang kiểm tra cấu hình…</div>
+        <div class="actions">
+          <button id="cpHealth" class="secondary" type="button">Kiểm tra Control Plane</button>
+          <button id="createRender" class="primary" type="button">Tạo workflow render</button>
+          <button id="runStage" class="secondary" type="button" disabled>Chạy bước tiếp theo</button>
+          <button id="approveJob" class="secondary" type="button" disabled>Phê duyệt publish</button>
+        </div>
+        <div id="cpResult" class="result">Chưa có job.</div>
+      </div>
+    </section>
+
+    <button id="ping" class="secondary" type="button">Kiểm tra kết nối local</button>
+  </main>
+
+  <script>
+    const pending = new Map();
+    let lastJobId = null;
+
+    window.DHP = {
+      receive(payload) {
+        document.getElementById('project').textContent = payload.model.title;
+        document.getElementById('cpStatus').textContent = payload.controlPlane && payload.controlPlane.configured ? 'Đã cấu hình secret Control Plane' : 'Chưa cấu hình DHP_CONTROL_PLANE_SECRET';
+      },
+      resolve(result) {
+        const item = pending.get(result.requestId);
+        if (item) { item.resolve(result.data); pending.delete(result.requestId); }
+      },
+      reject(error) {
+        console.error(error);
+        const item = error && error.requestId ? pending.get(error.requestId) : null;
+        if (item) { item.reject(error); pending.delete(error.requestId); }
+        document.getElementById('connection').textContent = 'Lỗi';
+      }
+    };
+
+    function command(commandName, args = {}) {
+      const requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      return new Promise((resolve, reject) => {
+        pending.set(requestId, { resolve, reject });
+        window.sketchup.dhpCommand(JSON.stringify({ requestId, command: commandName, args }));
+      });
+    }
+
+    function showControlPlaneResult(value) { document.getElementById('cpResult').textContent = JSON.stringify(value, null, 2); }
+
+    document.querySelectorAll('.drawer-button').forEach(button => button.addEventListener('click', () => {
+      const card = button.closest('.card');
+      card.dataset.open = card.dataset.open !== 'true';
+    }));
+
+    const slider = document.getElementById('width');
+    const output = document.getElementById('widthValue');
+    slider.addEventListener('input', () => { output.value = `${slider.value} mm`; });
+    slider.addEventListener('change', () => console.log('Commit width', Number(slider.value)));
+
+    const dropzone = document.getElementById('dropzone');
+    ['dragenter', 'dragover'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); dropzone.classList.add('dragging'); }));
+    ['dragleave', 'drop'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); dropzone.classList.remove('dragging'); }));
+    dropzone.addEventListener('drop', event => {
+      const files = [...event.dataTransfer.files].filter(file => /^image\/(jpeg|png)$/.test(file.type));
+      dropzone.textContent = files.length ? `Đã chọn ${files.length} ảnh` : 'Chỉ hỗ trợ JPG/PNG ở bản đầu';
+    });
+
+    document.getElementById('ping').addEventListener('click', async () => {
+      const result = await command('ping');
+      document.getElementById('connection').textContent = `SketchUp ${result.sketchup_version}`;
+    });
+
+    document.getElementById('cpHealth').addEventListener('click', async () => {
+      try {
+        const result = await command('control_plane_health');
+        document.getElementById('cpStatus').textContent = 'Control Plane online';
+        showControlPlaneResult(result);
+      } catch (error) {
+        document.getElementById('cpStatus').textContent = 'Control Plane offline';
+        showControlPlaneResult(error);
+      }
+    });
+
+    document.getElementById('createRender').addEventListener('click', async () => {
+      try {
+        const result = await command('control_plane_create_media_job', { workflowId: 'sketchup-render', payload: { widthMm: Number(slider.value), source: 'dhp-sketchup-extension' } });
+        const job = result.data || result;
+        lastJobId = job.id;
+        document.getElementById('runStage').disabled = !lastJobId;
+        document.getElementById('approveJob').disabled = !lastJobId;
+        showControlPlaneResult(job);
+      } catch (error) { showControlPlaneResult(error); }
+    });
+
+    document.getElementById('runStage').addEventListener('click', async () => {
+      if (!lastJobId) return;
+      try {
+        const result = await command('control_plane_run_media_stage', { jobId: lastJobId });
+        showControlPlaneResult(result.data || result);
+      } catch (error) { showControlPlaneResult(error); }
+    });
+
+    document.getElementById('approveJob').addEventListener('click', async () => {
+      if (!lastJobId) return;
+      try {
+        const result = await command('control_plane_approve_media_job', { jobId: lastJobId });
+        showControlPlaneResult(result.data || result);
+      } catch (error) { showControlPlaneResult(error); }
+    });
+
+    window.sketchup.dhpReady();
+  </script>
+</body>
+</html>
