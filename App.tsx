@@ -1,11 +1,8 @@
-
 import React, { useEffect } from 'react';
 import { useStore } from './store';
 import { AppState } from './types';
-import { Navigation } from './components/Navigation'; // Desktop Sidebar
-import { BottomNav } from './components/BottomNav'; // Mobile Bottom Nav
-
-// Screens
+import { Navigation } from './components/Navigation';
+import { BottomNav } from './components/BottomNav';
 import { Onboarding } from './screens/Onboarding';
 import { Auth } from './screens/Auth';
 import { Home } from './screens/Home';
@@ -21,18 +18,19 @@ import { Team } from './screens/Team';
 import { Analytics } from './screens/Analytics';
 import { ProjectDetail } from './screens/ProjectDetail';
 import { VRShowroom } from './screens/VRShowroom';
+import { SketchUpImport } from './screens/SketchUpImport';
 
 const App: React.FC = () => {
   const { currentScreen, isAuthenticated, hasCompletedOnboarding, setScreen } = useStore();
+  const isSketchUpSession = new URLSearchParams(window.location.search).get('host') === 'sketchup-ext' && !!new URLSearchParams(window.location.search).get('syncPort');
 
-  // Route Guard
   useEffect(() => {
-    if (!hasCompletedOnboarding && currentScreen !== AppState.ONBOARDING) {
-        setScreen(AppState.ONBOARDING);
-    } else if (hasCompletedOnboarding && !isAuthenticated && currentScreen !== AppState.AUTH) {
-        setScreen(AppState.AUTH);
-    }
-  }, [hasCompletedOnboarding, isAuthenticated, currentScreen, setScreen]);
+    if (isSketchUpSession) return;
+    if (!hasCompletedOnboarding && currentScreen !== AppState.ONBOARDING) setScreen(AppState.ONBOARDING);
+    else if (hasCompletedOnboarding && !isAuthenticated && currentScreen !== AppState.AUTH) setScreen(AppState.AUTH);
+  }, [hasCompletedOnboarding, isAuthenticated, currentScreen, setScreen, isSketchUpSession]);
+
+  if (isSketchUpSession) return <SketchUpImport />;
 
   const renderScreen = () => {
     switch (currentScreen) {
@@ -55,45 +53,16 @@ const App: React.FC = () => {
     }
   };
 
-  // Full Screen modes (No Sidebar/Nav, No Padding)
-  // These screens take over the entire viewport for immersive experience
-  const isFullScreen = 
-    currentScreen === AppState.ONBOARDING || 
-    currentScreen === AppState.AUTH || 
-    currentScreen === AppState.AR || 
-    currentScreen === AppState.VR_SHOWROOM || 
-    currentScreen === AppState.EDITOR ||
-    currentScreen === AppState.CREATE;
+  const isFullScreen = currentScreen === AppState.ONBOARDING || currentScreen === AppState.AUTH || currentScreen === AppState.AR || currentScreen === AppState.VR_SHOWROOM || currentScreen === AppState.EDITOR || currentScreen === AppState.CREATE;
+  if (isFullScreen) return <div className="w-full h-[100dvh] bg-black text-white overflow-hidden relative flex flex-col">{renderScreen()}</div>;
 
-  if (isFullScreen) {
-      return (
-          // Use h-[100dvh] to ensure it fits mobile viewport perfectly including address bars
-          <div className="w-full h-[100dvh] bg-black text-white overflow-hidden relative flex flex-col">
-              {renderScreen()}
-          </div>
-      );
-  }
-
-  return (
-    // Use h-[100dvh] for the main app layout as well
-    <div className="flex w-full h-[100dvh] bg-dark-bg text-white overflow-hidden font-sans selection:bg-brand-gold selection:text-black">
-       {/* Desktop Sidebar (Fixed width, hidden on mobile) */}
-       <div className="hidden md:block w-64 h-full flex-shrink-0 z-50 shadow-2xl">
-           <Navigation />
-       </div>
-       
-       {/* Main Content Area (Scrollable) */}
-       <main className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-gradient-to-br from-dark-bg to-[#0B1221] no-scrollbar">
-           {/* Padding bottom added to ensure content isn't hidden behind mobile nav */}
-           <div className="min-h-full w-full max-w-[1920px] mx-auto pb-32 md:pb-8">
-                {renderScreen()}
-           </div>
-           
-           {/* Global Mobile Navigation (Visible only on mobile, inside main layout) */}
-           <BottomNav />
-       </main>
-    </div>
-  );
+  return <div className="flex w-full h-[100dvh] bg-dark-bg text-white overflow-hidden font-sans selection:bg-brand-gold selection:text-black">
+    <div className="hidden md:block w-64 h-full flex-shrink-0 z-50 shadow-2xl"><Navigation /></div>
+    <main className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-gradient-to-br from-dark-bg to-[#0B1221] no-scrollbar">
+      <div className="min-h-full w-full max-w-[1920px] mx-auto pb-32 md:pb-8">{renderScreen()}</div>
+      <BottomNav />
+    </main>
+  </div>;
 };
 
 export default App;
