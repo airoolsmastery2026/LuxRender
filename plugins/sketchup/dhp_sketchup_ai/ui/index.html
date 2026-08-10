@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="app.css"></head>
+<body>
+<main class="app">
+  <div class="brand">ĐẠI HẢI PHÁT</div><div class="title">SketchUp -> LuxRender</div>
+  <div id="model">Đang đọc mô hình…</div><div id="meta" class="muted"></div>
+  <section class="card">
+    <div class="section-head"><label>Scene / Camera</label><span id="syncBadge" class="badge">Sync off</span></div>
+    <select id="scene"></select>
+    <div class="row"><button id="capture">Chụp View</button><button id="refresh" class="secondary">Làm mới</button></div>
+    <img id="preview" hidden alt="SketchUp viewport preview">
+    <div class="row"><button id="save" class="secondary">Lưu ảnh</button><button id="openAI" class="gold">Mở LuxRender</button></div>
+  </section>
+  <section class="card">
+    <label>Lệnh thiết kế</label>
+    <textarea id="prompt" placeholder="Ví dụ: Đổi phòng khách sang phong cách hiện đại ấm, giữ nguyên cửa và sofa."></textarea>
+    <div class="chips"><button class="chip" data-prompt="Giữ nguyên hình học và tỷ lệ. Render photorealistic, ánh sáng tự nhiên, vật liệu chân thực.">Strict</button><button class="chip" data-prompt="Giữ cấu trúc chính nhưng cho phép cải thiện thiết kế và vật liệu.">Balanced</button><button class="chip" data-prompt="Cho phép đề xuất bố cục và phong cách sáng tạo hơn.">Creative</button></div>
+    <div class="muted note">Plugin chỉ là adapter. Prompt/AI provider/render logic thuộc LuxRender.</div>
+  </section>
+  <div id="status" class="status">Đang khởi động…</div>
+</main><script src="bridge.js"></script><script src="app.js"></script>
+</body></html>
