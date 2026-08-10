@@ -3,6 +3,7 @@ require 'json'
 require_relative 'core/model_service'
 require_relative 'core/dialog_service'
 require_relative 'core/server_service'
+require_relative 'core/control_plane_client'
 
 module DaiHaiPhat
   module SketchUpAI
