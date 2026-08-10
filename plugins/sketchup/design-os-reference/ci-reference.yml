@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ruby-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+      - name: Check Ruby syntax
+        run: find . -name '*.rb' -print0 | xargs -0 -n1 ruby -c
+
+  package-layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify extension layout
+        run: |
+          test -f dhp_design_os.rb
+          test -f dhp_design_os/extension.rb
+          test -f dhp_design_os/ui/dialog.rb
+          test -f dhp_design_os/ui/index.html
