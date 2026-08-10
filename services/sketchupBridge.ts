@@ -1,6 +1,7 @@
 export type SketchUpScene = { name: string; index?: number };
 export type SketchUpStatus = {
   connected: boolean;
+  running?: boolean;
   port?: number;
   host?: string;
   version?: string;
@@ -20,26 +21,26 @@ export function readSketchUpPort(): number | null {
 
 async function request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const port = readSketchUpPort();
-  if (!port) throw new Error('SketchUp bridge chưa được kết nối. Hãy mở LuxRender từ plugin SketchUp.');
-
+  if (!port) throw new Error('SketchUp chưa kết nối. Hãy mở LuxRender từ DHP SketchUp Plugin.');
   const response = await fetch(`http://127.0.0.1:${port}/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method, params }),
   });
-
   if (!response.ok) throw new Error(`SketchUp bridge HTTP ${response.status}`);
   const payload = await response.json();
-  if (payload?.ok === false) throw new Error(payload?.error || payload?.message || 'SketchUp bridge request failed');
-  return (payload?.result ?? payload?.payload ?? payload) as T;
+  if (payload?.error) throw new Error(payload.error);
+  return payload as T;
 }
 
 export async function getSketchUpStatus(): Promise<SketchUpStatus> {
   const port = readSketchUpPort();
   if (!port) return { connected: false };
   try {
-    const status = await request<Record<string, unknown>>('status');
-    return { connected: true, port, ...status } as SketchUpStatus;
+    const response = await fetch(`http://127.0.0.1:${port}/`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    return { connected: true, port, ...status };
   } catch (error) {
     return { connected: false, port, error: error instanceof Error ? error.message : String(error) };
   }
@@ -47,7 +48,10 @@ export async function getSketchUpStatus(): Promise<SketchUpStatus> {
 
 export const sketchUpBridge = {
   status: getSketchUpStatus,
-  scenes: () => request<SketchUpScene[]>('get_scenes'),
-  captureScene: (name: string) => request<{ dataUrl?: string } | string>('capture_scene', { name }),
-  modelInfo: () => request<Record<string, unknown>>('get_model_info'),
+  scenes: () => request<SketchUpScene[]>('lux_get_scenes'),
+  captureScene: (name: string) => request<{ dataUrl: string }>('lux_capture_scene', { name }),
+  modelInfo: () => request<Record<string, unknown>>('lux_get_model_info'),
+  camera: () => request<Record<string, unknown>>('lux_get_camera'),
+  selection: () => request<unknown[]>('lux_get_selection'),
+  materials: () => request<unknown[]>('lux_get_materials'),
 };
