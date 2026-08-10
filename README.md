@@ -1,36 +1,40 @@
-# NboxAI - Architecture Video Generator
+# LuxRender
 
-Professional Real Estate & Architecture video creation tool.
+LuxRender is the single source of truth for the Dai Hai Phat spatial AI platform.
 
-## Features
-- **Auto Video Generation:** Convert photos/3D models to cinematic video.
-- **AI Scripting:** Gemini-powered real estate copywriting.
-- **Editor:** Timeline, transitions, and AI voiceover.
-- **AR Mode:** Visualize furniture in real-time.
-- **Team & Analytics:** Enterprise-ready features.
+## Product direction
 
-## Setup
+LuxRender combines the FormaVision workflow, AI rendering, SketchUp integration and future desktop/mobile adapters in one modular repository.
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+Core workflow:
 
-2. Environment Variables (.env):
-   ```
-   API_KEY=your_gemini_api_key
-   ```
+`UPLOAD -> UNDERSTAND -> PROMPT -> CONTROL -> GENERATE -> EDIT -> VERSION -> VIDEO -> EXPORT`
 
-3. Run Development:
-   ```bash
-   npm start
-   ```
+SketchUp workflow:
 
-## Tech Stack
-- React 18 + TypeScript
-- Tailwind CSS (Styling)
-- Zustand (State)
-- Three.js / R3F (3D Rendering)
-- Google Gemini (AI Logic)
-- Recharts (Analytics)
-- Lucide React (Icons)
+`MODEL -> SCENE/CAMERA/SELECTION/MATERIAL -> GEOMETRY LOCK -> AI RENDER -> EDIT -> VERSION -> EXPORT/RETURN`
+
+## Repository boundaries
+
+- Existing React/Vite application: current LuxRender studio baseline.
+- `plugins/sketchup`: SketchUp adapter and RBZ source.
+- `docs`: product and architecture source of truth.
+- `.ai`: immutable development rules and next task.
+
+## Product roles
+
+- **LuxRender Studio**: AI Spatial Design & Media Studio.
+- **LuxRender Render Core**: provider-agnostic render/design engine.
+- **DHP SketchUp Plugin**: CAD/geometry adapter.
+- **DHP Design OS**: business operating system that can consume LuxRender; it is not duplicated inside the render core.
+- **DHP Field**: future field/mobile client.
+
+## Current stack
+
+The existing application remains intact while the repository is migrated incrementally. Do not rewrite working UI solely to satisfy a folder layout.
+
+## Development rule
+
+One repository does not mean one code blob. Every module must have a narrow responsibility and communicate through explicit contracts.
+
+See `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, and `.ai/CONSTITUTION.md` before major changes.

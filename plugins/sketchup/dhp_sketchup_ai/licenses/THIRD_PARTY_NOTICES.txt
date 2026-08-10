@@ -1,0 +1,15 @@
+This extension uses concepts/reference material from:
+
+1) SketchUp Ruby API Tutorials
+Copyright (c) 2016 Trimble Inc.
+MIT License
+https://github.com/SketchUp/sketchup-ruby-api-tutorials
+
+2) sketchup-bridge
+Copyright (c) 2019 Aerilius
+MIT License
+https://github.com/Aerilius/sketchup-bridge
+
+Retain applicable copyright and permission notices when substantial portions are copied into a distribution.
+
+NBOX was used as an interoperability/reference baseline during migration. NBOX is not a required runtime dependency of the LuxRender adapter.
