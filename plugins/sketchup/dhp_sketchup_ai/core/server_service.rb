@@ -155,9 +155,20 @@ module DaiHaiPhat
         nil
       end
 
+      # This dispatcher is only for requests coming from the background TCP server.
+      # SketchUp model access is marshalled onto the UI thread via run_on_main.
       def dispatch(method, params)
         case method
         when 'lux_status' then status
+        when 'lux_bootstrap'
+          run_on_main do
+            {
+              status: status,
+              model: ModelService.model_info,
+              camera: ModelService.camera,
+              control_plane: { configured: ControlPlaneClient.configured? }
+            }
+          end
         when 'lux_get_scenes', 'nbox_get_scenes' then run_on_main { ModelService.scenes }
         when 'lux_get_scene_previews' then run_on_main { ModelService.scene_previews(params.fetch('width', 360), params.fetch('height', 220)) }
         when 'lux_capture_scene', 'nbox_capture_scene' then run_on_main { { dataUrl: ModelService.capture_scene(params['name'], params['aspectRatio']) } }
@@ -167,24 +178,12 @@ module DaiHaiPhat
         when 'lux_set_field_of_view' then run_on_main { ModelService.set_field_of_view(params['value']) }
         when 'lux_get_selection' then run_on_main { ModelService.selection }
         when 'lux_get_materials' then run_on_main { ModelService.materials }
+        when 'lux_get_context' then run_on_main { { selection: ModelService.selection, materials: ModelService.materials } }
         when 'lux_pick_dir', 'nbox_pick_dir' then run_on_main { ModelService.pick_dir }
         when 'lux_save_image', 'nbox_save_image' then run_on_main { ModelService.save_image(params) }
-        when 'lux_control_plane_status' then control_plane_status
+        when 'lux_control_plane_status' then { configured: ControlPlaneClient.configured? }
         else { error: "method không hỗ trợ: #{method}" }
         end
-      end
-
-      def control_plane_status
-        configured = ControlPlaneClient.configured?
-        health = nil
-        if configured
-          begin
-            health = ControlPlaneClient.health
-          rescue StandardError => e
-            health = { error: e.message }
-          end
-        end
-        { configured: configured, health: health }
       end
 
       def run_on_main(timeout = 180, &block)

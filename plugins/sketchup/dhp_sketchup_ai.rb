@@ -4,12 +4,12 @@ require 'extensions.rb'
 module DaiHaiPhat
   module SketchUpAI
     EXTENSION_NAME = 'DHP SketchUp AI'.freeze
-    EXTENSION_VERSION = '0.4.2'.freeze
+    EXTENSION_VERSION = '0.4.3'.freeze
     EXTENSION_ID = 'com.daihaiphat.sketchup_ai'.freeze
 
     unless file_loaded?(__FILE__)
       extension = SketchupExtension.new(EXTENSION_NAME, 'dhp_sketchup_ai/main')
-      extension.description = 'Lightweight SketchUp adapter for LuxRender with native Local Studio.'
+      extension.description = 'Lightweight SketchUp adapter for LuxRender with deadlock-safe native Local Studio.'
       extension.version = EXTENSION_VERSION
       extension.creator = 'Dai Hai Phat'
       extension.copyright = '2026 Dai Hai Phat'

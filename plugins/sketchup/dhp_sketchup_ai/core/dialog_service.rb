@@ -50,13 +50,43 @@ module DaiHaiPhat
         reply(id, false, { message: e.message, type: e.class.name }) if id
       end
 
+      # HtmlDialog callbacks already execute on SketchUp's main thread. Never route
+      # these calls through ServerService.run_on_main, otherwise the main thread
+      # waits on a queue that only the same main thread can drain.
       def handle_studio_rpc(json)
         request = JSON.parse(json.to_s)
         id = request['id']
-        result = ServerService.dispatch(request['method'].to_s, request['params'] || {})
+        result = native_dispatch(request['method'].to_s, request['params'] || {})
         studio_reply(id, true, result)
       rescue => e
         studio_reply(id, false, { message: e.message, type: e.class.name }) if id
+      end
+
+      def native_dispatch(method, params)
+        case method
+        when 'lux_bootstrap'
+          {
+            status: ServerService.status,
+            model: ModelService.model_info,
+            camera: ModelService.camera,
+            control_plane: { configured: ControlPlaneClient.configured? }
+          }
+        when 'lux_status' then ServerService.status
+        when 'lux_get_scenes' then ModelService.scenes
+        when 'lux_get_scene_previews' then ModelService.scene_previews(params.fetch('width', 360), params.fetch('height', 220))
+        when 'lux_capture_scene' then { dataUrl: ModelService.capture_scene(params['name'], params['aspectRatio']) }
+        when 'lux_get_model_info' then ModelService.model_info
+        when 'lux_get_camera' then ModelService.camera
+        when 'lux_set_aspect_ratio' then ModelService.set_aspect_ratio(params['value'])
+        when 'lux_set_field_of_view' then ModelService.set_field_of_view(params['value'])
+        when 'lux_get_selection' then ModelService.selection
+        when 'lux_get_materials' then ModelService.materials
+        when 'lux_get_context' then { selection: ModelService.selection, materials: ModelService.materials }
+        when 'lux_pick_dir' then ModelService.pick_dir
+        when 'lux_save_image' then ModelService.save_image(params)
+        when 'lux_control_plane_status' then { configured: ControlPlaneClient.configured? }
+        else raise ArgumentError, "Method không hỗ trợ: #{method}"
+        end
       end
 
       def dispatch(method, params)
