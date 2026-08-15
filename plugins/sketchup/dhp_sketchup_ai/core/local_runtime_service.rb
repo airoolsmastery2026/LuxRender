@@ -42,35 +42,39 @@ module DaiHaiPhat
         current = status
         return current.merge(started: false) if current[:ready]
 
-        start_comfyui_if_available unless current[:comfy_running]
-        return current.merge(started: false) if current[:bridge_running]
+        comfy_launch = start_comfyui_if_available unless current[:comfy_running]
 
-        node = node_command
-        raise 'Không tìm thấy Node.js 18+. Hãy cài Node.js rồi thử lại.' unless node
+        unless current[:bridge_running]
+          node = node_command
+          raise 'Không tìm thấy Node.js 18+. Hãy cài Node.js rồi thử lại.' unless node
 
-        bridge_file = File.expand_path(File.join(__dir__, '..', 'local_runtime', 'server.mjs'))
-        raise 'Thiếu Local Bridge trong gói cài. Hãy cài lại RBZ v0.7.1.' unless File.file?(bridge_file)
+          bridge_file = File.expand_path(File.join(__dir__, '..', 'local_runtime', 'server.mjs'))
+          raise 'Thiếu Local Bridge trong gói cài. Hãy cài lại RBZ v0.7.1.' unless File.file?(bridge_file)
 
-        log_dir = File.join(ENV['LOCALAPPDATA'].to_s.empty? ? Dir.tmpdir : ENV['LOCALAPPDATA'], 'DaiHaiPhat', 'LuxRender')
-        FileUtils.mkdir_p(log_dir)
-        @log_file = File.join(log_dir, 'local-runtime.log')
-        log = File.open(@log_file, 'a')
-        log.sync = true
+          log_dir = File.join(ENV['LOCALAPPDATA'].to_s.empty? ? Dir.tmpdir : ENV['LOCALAPPDATA'], 'DaiHaiPhat', 'LuxRender')
+          FileUtils.mkdir_p(log_dir)
+          @log_file = File.join(log_dir, 'local-runtime.log')
+          log = File.open(@log_file, 'a')
+          log.sync = true
 
-        @pid = Process.spawn(
-          node,
-          bridge_file,
-          chdir: File.dirname(bridge_file),
-          out: log,
-          err: log,
-          new_pgroup: true
-        )
-        Process.detach(@pid)
+          @pid = Process.spawn(
+            node,
+            bridge_file,
+            chdir: File.dirname(bridge_file),
+            out: log,
+            err: log,
+            new_pgroup: true
+          )
+          Process.detach(@pid)
+        end
 
-        30.times do
-          sleep 0.25
+        # ComfyUI can need several seconds to load a checkpoint list. This method
+        # runs in DialogService's worker thread, never on SketchUp's UI thread.
+        60.times do
+          sleep 0.5
           bridge = get_json("#{BRIDGE_URL}/api/health", 0.8)
           return normalize_bridge_status(bridge).merge(started: true, pid: @pid, log: @log_file) if bridge
+          break if comfy_launch && comfy_launch[:found] == false && port_alive?('127.0.0.1', 8787)
         end
 
         current = status
@@ -140,7 +144,7 @@ module DaiHaiPhat
         return { started: false, running: false, found: false } unless launcher
 
         if File.extname(launcher).downcase == '.bat'
-          pid = Process.spawn('cmd.exe', '/c', launcher, chdir: File.dirname(launcher), out: File::NULL, err: File::NULL, new_pgroup: true)
+          pid = Process.spawn('cmd.exe', '/c', "\"#{launcher}\"", chdir: File.dirname(launcher), out: File::NULL, err: File::NULL, new_pgroup: true)
         else
           pid = Process.spawn(launcher, chdir: File.dirname(launcher), out: File::NULL, err: File::NULL, new_pgroup: true)
         end
