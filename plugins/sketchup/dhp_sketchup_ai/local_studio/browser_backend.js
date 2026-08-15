@@ -37,8 +37,11 @@ async function backendFetch(path, options = {}, timeoutMs = 240000) {
 
     if (!response.ok) {
       const message = payload?.error || `Backend HTTP ${response.status}`;
+      const attempts = Array.isArray(payload?.attemptedModels) && payload.attemptedModels.length
+        ? ` • models: ${payload.attemptedModels.map((item) => `${item.model}:${item.status || 'ERR'}`).join(' → ')}`
+        : '';
       const suffix = payload?.requestId ? ` • ${payload.requestId}` : '';
-      throw new Error(`${message}${suffix}`);
+      throw new Error(`${message}${attempts}${suffix}`);
     }
     return payload;
   } catch (error) {
@@ -49,19 +52,19 @@ async function backendFetch(path, options = {}, timeoutMs = 240000) {
   }
 }
 
-// Override v0.6.0 Ruby-network health path with Chromium HTTPS.
 async function testBackend() {
   try {
     state.backendUrl = normalizeBackendUrl($('backendUrl').value || state.backendUrl);
     setJobStatus('Đang kiểm tra AI backend qua HTTPS browser…');
     const health = await backendFetch('/api/health', { method: 'GET' }, 20000);
     const ready = health?.imageProvider && health.imageProvider !== 'unconfigured';
+    const models = Array.isArray(health?.imageModels) ? health.imageModels : [health?.imageModel].filter(Boolean);
     $('backendStatus').textContent = ready
-      ? `Sẵn sàng • ${health.imageProvider} • ${health.imageModel} • HTTPS browser`
+      ? `Sẵn sàng • ${health.imageProvider} • ${models.join(' → ')} • auto failover`
       : 'Backend chạy nhưng provider key chưa được cấu hình.';
     setBadge($('providerBadge'), ready ? health.imageProvider : 'Provider chưa cấu hình', ready ? 'ok' : 'warn');
     state.providerConfigured = ready;
-    setJobStatus(ready ? 'AI backend sẵn sàng qua Chromium HTTPS.' : 'Backend online nhưng chưa có provider key server-side.');
+    setJobStatus(ready ? 'AI backend sẵn sàng • tự chuyển model khi quota/model không khả dụng.' : 'Backend online nhưng chưa có provider key server-side.');
   } catch (error) {
     state.providerConfigured = false;
     setBadge($('providerBadge'), 'AI backend lỗi', 'warn');
@@ -70,7 +73,6 @@ async function testBackend() {
   }
 }
 
-// Override v0.6.0 Ruby-network render path with Chromium HTTPS.
 async function renderAI() {
   buildPromptBundle();
   if (!state.sourceUrl) return setJobStatus('Hãy Capture viewport trước khi Render AI.');
@@ -81,7 +83,7 @@ async function renderAI() {
   const renderButton = $('prepareJob');
   renderButton.disabled = true;
   try {
-    setJobStatus('queued → uploading → generating…');
+    setJobStatus('queued → uploading → generating → auto failover nếu cần…');
     const result = await backendFetch('/api/render', {
       method: 'POST',
       body: JSON.stringify({
@@ -92,13 +94,14 @@ async function renderAI() {
         aspectRatio: state.aspectRatio,
         imageSize: '1K',
       }),
-    }, 260000);
+    }, 300000);
 
     if (!result?.imageUrl) throw new Error('AI backend không trả về ảnh.');
     showRender(result.imageUrl, result);
-    setBadge($('providerBadge'), result.provider || 'AI ready', 'ok');
+    setBadge($('providerBadge'), result.model || result.provider || 'AI ready', 'ok');
     const request = result.requestId ? ` • ${result.requestId}` : '';
-    setJobStatus(`completed • AI Render hoàn tất${request}. Hãy Compare hoặc Lưu vào dự án.`);
+    const failover = result?.metadata?.failoverCount ? ` • failover ${result.metadata.failoverCount}` : '';
+    setJobStatus(`completed • ${result.model || 'AI Render'}${failover}${request}. Hãy Compare hoặc Lưu vào dự án.`);
   } catch (error) {
     setJobStatus(`failed • ${error.message || String(error)}`);
   } finally {
