@@ -56,22 +56,23 @@ module DaiHaiPhat
 
       def local_studio_url
         return nil unless @port
-        "http://127.0.0.1:#{@port}/studio"
+        "http://127.0.0.1:#{@port}/studio/"
       end
 
       def launch_app
         start unless running?
         configured = DaiHaiPhat::SketchUpAI.app_url
-        base = if configured.empty? || configured == DaiHaiPhat::SketchUpAI::DEFAULT_APP_URL
-                 local_studio_url
-               else
-                 configured
-               end
-        sep = base.include?('?') ? '&' : '?'
-        url = "#{base}#{sep}host=sketchup-ext&syncPort=#{@port}"
+
+        if configured.empty? || configured == DaiHaiPhat::SketchUpAI::DEFAULT_APP_URL
+          dialog = DialogService.show_studio
+          return { url: local_studio_url, port: @port, embedded: true, mode: dialog[:mode] }
+        end
+
+        sep = configured.include?('?') ? '&' : '?'
+        url = "#{configured}#{sep}host=sketchup-ext&syncPort=#{@port}"
         opened = ModelService.open_external(url)
         raise RuntimeError, 'Không thể mở LuxRender Studio.' unless opened
-        { url: url, port: @port, embedded: base == local_studio_url }
+        { url: url, port: @port, embedded: false, mode: 'external' }
       end
 
       def serve_loop
@@ -156,6 +157,7 @@ module DaiHaiPhat
 
       def dispatch(method, params)
         case method
+        when 'lux_status' then status
         when 'lux_get_scenes', 'nbox_get_scenes' then run_on_main { ModelService.scenes }
         when 'lux_get_scene_previews' then run_on_main { ModelService.scene_previews(params.fetch('width', 360), params.fetch('height', 220)) }
         when 'lux_capture_scene', 'nbox_capture_scene' then run_on_main { { dataUrl: ModelService.capture_scene(params['name'], params['aspectRatio']) } }
