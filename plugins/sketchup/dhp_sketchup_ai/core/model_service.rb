@@ -2,6 +2,8 @@ require 'base64'
 require 'tmpdir'
 require 'fileutils'
 require 'open-uri'
+require 'json'
+require 'time'
 
 module DaiHaiPhat
   module SketchUpAI
@@ -15,6 +17,8 @@ module DaiHaiPhat
         '4:5' => [4.0 / 5.0, 1280, 1600],
         '5:4' => [5.0 / 4.0, 1600, 1280]
       }.freeze
+      RENDER_DICTIONARY = 'DHP_LuxRender'.freeze
+      MAX_RENDER_HISTORY = 20
 
       def model_info
         model = Sketchup.active_model
@@ -169,10 +173,83 @@ module DaiHaiPhat
 
       def save_image(params)
         src = params['url'] || params['dataUrl'] || ''
-        filename = File.basename(params['filename'] || "dhp_#{Time.now.to_i}.jpg").gsub(/[^0-9A-Za-z._\- ]/, '_')
+        filename = sanitize_filename(params['filename'] || "dhp_#{Time.now.to_i}.jpg")
         dir = params['dir'].to_s
         path = dir.empty? ? UI.savepanel('Lưu ảnh DHP', '', filename) : File.join(dir, filename)
         return { path: '' } unless path
+        write_image_source(src, path)
+        { path: path }
+      end
+
+      def save_render_asset(params)
+        src = params['url'] || params['dataUrl'] || ''
+        raise ArgumentError, 'Thiếu ảnh render' if src.to_s.empty?
+
+        model = Sketchup.active_model
+        timestamp = Time.now.utc
+        scene = params['scene'].to_s.empty? ? 'current-view' : params['scene'].to_s
+        filename = sanitize_filename(params['filename'] || "luxrender-#{scene}-#{timestamp.strftime('%Y%m%d-%H%M%S')}.png")
+        root = render_root(model)
+        FileUtils.mkdir_p(root)
+        path = unique_path(File.join(root, filename))
+        write_image_source(src, path)
+
+        item = {
+          id: "render-#{(timestamp.to_f * 1000).to_i}",
+          path: path,
+          filename: File.basename(path),
+          createdAt: timestamp.iso8601,
+          scene: scene,
+          provider: params['provider'].to_s,
+          model: params['model'].to_s,
+          aspectRatio: params['aspectRatio'].to_s,
+          geometryLock: params['geometryLock'].to_s,
+          prompt: params['prompt'].to_s[0, 4000]
+        }
+
+        history = render_history
+        history.unshift(item)
+        history = history.first(MAX_RENDER_HISTORY)
+        model.set_attribute(RENDER_DICTIONARY, 'render_history', JSON.generate(history))
+        model.set_attribute(RENDER_DICTIONARY, 'last_render_path', path)
+        model.set_attribute(RENDER_DICTIONARY, 'last_render_meta', JSON.generate(item))
+        { path: path, item: item, history: history }
+      end
+
+      def render_history
+        model = Sketchup.active_model
+        raw = model.get_attribute(RENDER_DICTIONARY, 'render_history', '[]').to_s
+        value = JSON.parse(raw)
+        value.is_a?(Array) ? value.select { |item| item.is_a?(Hash) && File.file?(item['path'].to_s) } : []
+      rescue StandardError
+        []
+      end
+
+      def load_render_asset(path)
+        target = File.expand_path(path.to_s)
+        allowed = render_history.any? { |item| File.expand_path(item['path'].to_s) == target }
+        raise ArgumentError, 'Render asset không thuộc lịch sử của model hiện tại' unless allowed
+        raise ArgumentError, 'Render asset không còn tồn tại' unless File.file?(target)
+        mime = File.extname(target).downcase == '.jpg' || File.extname(target).downcase == '.jpeg' ? 'image/jpeg' : 'image/png'
+        { path: target, dataUrl: "data:#{mime};base64,#{Base64.strict_encode64(File.binread(target))}" }
+      end
+
+      def open_external(url)
+        target = url.to_s
+        return false unless target.start_with?('https://') || target.start_with?('http://127.0.0.1') || target.start_with?('http://localhost')
+        UI.openURL(target)
+        true
+      end
+
+      def render_root(model)
+        if !model.path.to_s.empty?
+          base = File.basename(model.path.to_s, File.extname(model.path.to_s))
+          return File.join(File.dirname(model.path.to_s), "#{sanitize_filename(base)}_LuxRender", 'renders')
+        end
+        File.join(Dir.home, 'Documents', 'LuxRender', 'Untitled', 'renders')
+      end
+
+      def write_image_source(src, path)
         bytes = if src.start_with?('data:')
           Base64.decode64(src.split(',', 2)[1].to_s)
         elsif src.start_with?('https://')
@@ -182,14 +259,23 @@ module DaiHaiPhat
         end
         FileUtils.mkdir_p(File.dirname(path))
         File.binwrite(path, bytes)
-        { path: path }
       end
 
-      def open_external(url)
-        target = url.to_s
-        return false unless target.start_with?('https://') || target.start_with?('http://127.0.0.1') || target.start_with?('http://localhost')
-        UI.openURL(target)
-        true
+      def unique_path(path)
+        return path unless File.exist?(path)
+        ext = File.extname(path)
+        stem = path.delete_suffix(ext)
+        index = 2
+        candidate = "#{stem}-#{index}#{ext}"
+        while File.exist?(candidate)
+          index += 1
+          candidate = "#{stem}-#{index}#{ext}"
+        end
+        candidate
+      end
+
+      def sanitize_filename(value)
+        File.basename(value.to_s).gsub(/[^0-9A-Za-z._\- ]/, '_')
       end
 
       def format_ratio_number(value)
