@@ -50,9 +50,7 @@ async function httpRpc(method, params) {
 }
 
 async function rpc(method, params = {}) {
-  if (window.sketchup && typeof window.sketchup.lux_rpc === 'function') {
-    return nativeRpc(method, params);
-  }
+  if (window.sketchup && typeof window.sketchup.lux_rpc === 'function') return nativeRpc(method, params);
   return httpRpc(method, params);
 }
 
@@ -116,17 +114,14 @@ function buildPromptBundle() {
 
 async function refresh() {
   try {
-    const [status, model, camera, controlPlane] = await Promise.all([
-      rpc('lux_status'),
-      rpc('lux_get_model_info'),
-      rpc('lux_get_camera'),
-      rpc('lux_control_plane_status').catch(() => ({ configured: false })),
-    ]);
+    setJobStatus('Đang đồng bộ SketchUp…');
+    const bootstrap = await rpc('lux_bootstrap');
+    const { status, model, camera, control_plane: controlPlane } = bootstrap;
 
     state.model = model;
     state.aspectRatio = model.aspect_ratio || state.aspectRatio;
     state.fov = Number(camera.fov || model.fov || 35);
-    state.providerConfigured = !!controlPlane.configured;
+    state.providerConfigured = !!(controlPlane && controlPlane.configured);
 
     $('modelMeta').textContent = `${model.title || 'Untitled'} • ${model.scenes.length} scene • ${model.materials_count} material • ${model.selection_count} selected • bridge :${status.port}`;
     setBadge($('bridgeBadge'), `Bridge :${status.port}`, 'ok');
@@ -154,7 +149,7 @@ async function refresh() {
     renderRatioButtons();
     renderGeometryButtons();
     buildPromptBundle();
-    setJobStatus('Sẵn sàng. LuxRender Local Studio đang chạy native trong SketchUp.');
+    setJobStatus('Sẵn sàng. Native RPC không dùng queue nên không khóa SketchUp.');
   } catch (error) {
     setBadge($('bridgeBadge'), 'Bridge lỗi', 'warn');
     setJobStatus(error.message || String(error));
@@ -202,7 +197,9 @@ async function loadScenePreviews() {
 
 async function readContext() {
   try {
-    const [selection, materials] = await Promise.all([rpc('lux_get_selection'), rpc('lux_get_materials')]);
+    const context = await rpc('lux_get_context');
+    const selection = context.selection || [];
+    const materials = context.materials || [];
     $('contextOutput').textContent = JSON.stringify({ selection, materials }, null, 2);
     setJobStatus(`Đã đọc ${selection.length} selection và ${materials.length} material.`);
   } catch (error) { setJobStatus(error.message || String(error)); }
@@ -238,5 +235,5 @@ document.addEventListener('DOMContentLoaded', () => {
   $('save').addEventListener('click', saveSource);
   $('refresh').addEventListener('click', refresh);
   $('prepareJob').addEventListener('click', prepareRenderJob);
-  refresh();
+  window.setTimeout(refresh, 50);
 });
