@@ -44,11 +44,13 @@ jobs:
           mkdir -p dist/rbz/dhp_sketchup_ai/local_runtime
           cp tools/local-render-bridge/server.mjs dist/rbz/dhp_sketchup_ai/local_runtime/server.mjs
           cp tools/local-render-bridge/README.md dist/rbz/dhp_sketchup_ai/local_runtime/README.md
+          cp tools/local-render-bridge/Start-LuxRender-Local-AI.cmd dist/rbz/dhp_sketchup_ai/local_runtime/Start-LuxRender-Local-AI.cmd
           cd dist/rbz
           zip -qr "../DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz" dhp_sketchup_ai.rb dhp_sketchup_ai
           cd ../..
           unzip -t "dist/DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz"
           unzip -l "dist/DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz" | grep 'dhp_sketchup_ai/local_runtime/server.mjs'
+          unzip -l "dist/DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz" | grep 'Start-LuxRender-Local-AI.cmd'
 
       - name: Upload RBZ artifact
         uses: actions/upload-artifact@v4
