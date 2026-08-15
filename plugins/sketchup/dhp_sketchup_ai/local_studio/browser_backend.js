@@ -86,26 +86,114 @@ async function localHealth() {
   }
 }
 
+function localRuntimeLabel(runtime) {
+  if (!runtime) return 'Chưa kiểm tra Local AI.';
+  if (runtime.ready) return `Local AI Ready${runtime.checkpoint ? ` • ${runtime.checkpoint}` : ''}`;
+  if (runtime.bridge_running && !runtime.comfy_running) return 'Bridge đã chạy • ComfyUI chưa chạy ở :8188';
+  if (runtime.bridge_running) return 'Bridge + ComfyUI đã chạy • thiếu checkpoint tương thích';
+  if (!runtime.node) return 'Thiếu Node.js 18+';
+  return runtime.message || 'Local AI chưa sẵn sàng.';
+}
+
+async function refreshLocalRuntimeStatus() {
+  try {
+    const runtime = await rpc('lux_local_runtime_status');
+    const el = $('localRuntimeStatus');
+    if (el) el.textContent = localRuntimeLabel(runtime);
+    return runtime;
+  } catch (error) {
+    const el = $('localRuntimeStatus');
+    if (el) el.textContent = error.message || String(error);
+    return null;
+  }
+}
+
+async function startLocalRuntime() {
+  const button = $('startLocalRuntime');
+  if (button) button.disabled = true;
+  try {
+    setJobStatus('Đang khởi động LuxRender Local Runtime…');
+    const runtime = await rpc('lux_local_runtime_start');
+    const el = $('localRuntimeStatus');
+    if (el) el.textContent = localRuntimeLabel(runtime);
+    if (runtime.ready) {
+      setBadge($('providerBadge'), 'local AI', 'ok');
+      setJobStatus('Local AI Ready • ComfyUI + checkpoint đã sẵn sàng.');
+    } else {
+      setJobStatus(runtime.message || 'Local Runtime đã khởi động nhưng ComfyUI/checkpoint chưa sẵn sàng.');
+    }
+    return runtime;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function ensureLocalRuntime() {
+  let local = await localHealth();
+  if (local?.ok) return local;
+
+  const runtime = await startLocalRuntime();
+  if (!runtime?.ready) {
+    throw new Error(localRuntimeLabel(runtime));
+  }
+  local = await localHealth();
+  if (!local?.ok) throw new Error('Local Bridge đã khởi động nhưng Chromium chưa kết nối được 127.0.0.1:8787.');
+  return local;
+}
+
+function installLocalRuntimeControls() {
+  const backendSection = $('backendStatus')?.closest('section');
+  if (!backendSection || $('localRuntimeStatus')) return;
+
+  const title = document.createElement('div');
+  title.className = 'section-title';
+  title.style.marginTop = '12px';
+  title.textContent = 'Local AI Runtime';
+
+  const row = document.createElement('div');
+  row.className = 'button-row';
+  const start = document.createElement('button');
+  start.id = 'startLocalRuntime';
+  start.textContent = 'Khởi động Local AI';
+  const check = document.createElement('button');
+  check.id = 'checkLocalRuntime';
+  check.textContent = 'Kiểm tra Local';
+  row.append(start, check);
+
+  const status = document.createElement('div');
+  status.id = 'localRuntimeStatus';
+  status.className = 'muted';
+  status.textContent = 'Đang kiểm tra Local AI…';
+
+  backendSection.append(title, row, status);
+  start.addEventListener('click', () => startLocalRuntime().catch((error) => setJobStatus(error.message || String(error))));
+  check.addEventListener('click', refreshLocalRuntimeStatus);
+  window.setTimeout(refreshLocalRuntimeStatus, 150);
+}
+
 async function testBackend() {
   try {
     state.backendUrl = normalizeBackendUrl($('backendUrl').value || state.backendUrl);
     setJobStatus('Đang kiểm tra AI backend qua HTTPS browser…');
-    const [health, local] = await Promise.all([
+    const [health, local, nativeLocal] = await Promise.all([
       backendFetch('/api/health', { method: 'GET' }, 20000),
       localHealth(),
+      rpc('lux_local_runtime_status').catch(() => null),
     ]);
     const ready = health?.imageProvider && health.imageProvider !== 'unconfigured';
     const models = Array.isArray(health?.imageModels) ? health.imageModels : [health?.imageModel].filter(Boolean);
-    const localLabel = local?.ok ? ` • local ${local.provider || 'AI'} sẵn sàng` : ' • local bridge chưa chạy';
+    const localReady = !!local?.ok;
+    const localLabel = localReady ? ` • local ${local.provider || 'AI'} sẵn sàng` : ` • ${localRuntimeLabel(nativeLocal)}`;
     $('backendStatus').textContent = ready
       ? `Sẵn sàng • ${health.imageProvider} • ${models.join(' → ')} • auto failover${localLabel}`
       : `Backend chạy nhưng provider key chưa được cấu hình${localLabel}.`;
-    setBadge($('providerBadge'), ready ? health.imageProvider : (local?.ok ? 'local AI' : 'Provider chưa cấu hình'), ready || local?.ok ? 'ok' : 'warn');
-    state.providerConfigured = ready || !!local?.ok;
+    setBadge($('providerBadge'), ready ? health.imageProvider : (localReady ? 'local AI' : 'Provider chưa cấu hình'), ready || localReady ? 'ok' : 'warn');
+    state.providerConfigured = ready || localReady;
+    if ($('localRuntimeStatus')) $('localRuntimeStatus').textContent = localRuntimeLabel(nativeLocal);
     setJobStatus(
-      local?.ok
+      localReady
         ? `AI sẵn sàng • cloud trước, local ${local.provider || 'AI'} tự động khi cloud hết quota.`
-        : (ready ? 'Cloud AI sẵn sàng • local bridge chưa chạy.' : 'Backend online nhưng chưa có provider key server-side.')
+        : (ready ? 'Cloud AI sẵn sàng • Local Runtime sẽ tự khởi động nếu cloud hết quota.' : 'Backend online nhưng chưa có provider key server-side.')
     );
   } catch (error) {
     const local = await localHealth();
@@ -148,11 +236,13 @@ async function renderAI() {
       result = await backendFetch('/api/render', { method: 'POST', body: requestBody }, 300000);
     } catch (cloudError) {
       if (!shouldTryLocalFallback(cloudError)) throw cloudError;
-      setJobStatus('Cloud hết quota → đang chuyển sang Local AI / ComfyUI…');
+      setJobStatus('Cloud hết quota → tự khởi động Local AI…');
       try {
+        await ensureLocalRuntime();
+        setJobStatus('Local AI Ready → ComfyUI đang render…');
         result = await backendFetchAt(LOCAL_RENDER_BRIDGE, '/api/render', { method: 'POST', body: requestBody }, 360000);
       } catch (localError) {
-        throw new Error(`${cloudError.message} • Local fallback chưa sẵn sàng: ${localError.message}. Chạy LuxRender Local Bridge + ComfyUI.`);
+        throw new Error(`${cloudError.message} • Local fallback: ${localError.message}`);
       }
     }
 
@@ -169,3 +259,5 @@ async function renderAI() {
     renderButton.disabled = false;
   }
 }
+
+document.addEventListener('DOMContentLoaded', installLocalRuntimeControls);
