@@ -1,4 +1,5 @@
 require 'json'
+require 'thread'
 
 module DaiHaiPhat
   module SketchUpAI
@@ -70,6 +71,18 @@ module DaiHaiPhat
       end
 
       def handle_async_studio_rpc(id, method, params)
+        queue = Queue.new
+        timer = nil
+        timer = UI.start_timer(0.05, true) do
+          begin
+            ok, payload = queue.pop(true)
+            UI.stop_timer(timer) if timer
+            studio_reply(id, ok, payload)
+          rescue ThreadError
+            # Network worker has not completed yet; keep UI responsive.
+          end
+        end
+
         Thread.new do
           begin
             result = case method
@@ -77,9 +90,9 @@ module DaiHaiPhat
                      when 'lux_backend_health' then RenderBackendClient.health
                      else raise ArgumentError, "Method không hỗ trợ: #{method}"
                      end
-            UI.start_timer(0, false) { studio_reply(id, true, result) }
+            queue << [true, result]
           rescue => e
-            UI.start_timer(0, false) { studio_reply(id, false, { message: e.message, type: e.class.name }) }
+            queue << [false, { message: e.message, type: e.class.name }]
           end
         end
       end
