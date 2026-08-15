@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LuxRender Local Studio</title>
+  <link rel="stylesheet" href="/studio/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">ĐẠI HẢI PHÁT • LOCAL RUNTIME</div>
+      <h1>LuxRender Studio</h1>
+      <div id="modelMeta" class="muted">Đang kết nối SketchUp…</div>
+    </div>
+    <div class="status-stack">
+      <span id="bridgeBadge" class="badge ok">Bridge</span>
+      <span id="providerBadge" class="badge">AI provider</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel controls">
+      <section>
+        <div class="section-title">Scene / Camera</div>
+        <select id="scene"></select>
+        <div class="button-row">
+          <button id="capture" class="primary">Capture</button>
+          <button id="loadScenes">Scene previews</button>
+        </div>
+        <div id="sceneGrid" class="scene-grid"></div>
+      </section>
+
+      <section>
+        <div class="section-title">Aspect ratio</div>
+        <div id="ratioButtons" class="chips"></div>
+      </section>
+
+      <section>
+        <div class="section-title row-between"><span>Field of view</span><strong id="fovValue">35°</strong></div>
+        <input id="fov" type="range" min="20" max="90" step="1" value="35">
+      </section>
+
+      <section>
+        <div class="section-title">Geometry Lock</div>
+        <div id="geometryButtons" class="chips"></div>
+      </section>
+
+      <section>
+        <div class="section-title">Lệnh thiết kế</div>
+        <textarea id="prompt" placeholder="Ví dụ: Đổi phòng khách sang hiện đại ấm, giữ nguyên cửa, sofa và tỷ lệ không gian."></textarea>
+      </section>
+
+      <section>
+        <div class="section-title">SketchUp context</div>
+        <div class="button-row">
+          <button id="context">Đọc vật liệu / selection</button>
+          <button id="save">Lưu ảnh</button>
+        </div>
+        <pre id="contextOutput" class="context-output">Chưa đọc context.</pre>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="canvas-card">
+        <div class="canvas-head">
+          <div>
+            <div class="section-title">Viewport Source</div>
+            <div id="captureMeta" class="muted">Capture trực tiếp từ SketchUp.</div>
+          </div>
+          <button id="refresh" class="small">Refresh</button>
+        </div>
+        <div id="emptyState" class="empty-state">Chọn Scene rồi bấm <b>Capture</b>.</div>
+        <img id="sourceImage" class="source-image" hidden alt="SketchUp source">
+      </div>
+
+      <div class="panel prompt-panel">
+        <div class="row-between">
+          <div>
+            <div class="section-title">Render handoff</div>
+            <div class="muted">Studio local không chứa API key. Render thật được thực thi bởi backend/Control Plane.</div>
+          </div>
+          <button id="prepareJob" class="primary">Chuẩn bị Render Job</button>
+        </div>
+        <div class="prompt-grid">
+          <div><label>IMAGE PROMPT</label><pre id="imagePrompt"></pre></div>
+          <div><label>GEOMETRY</label><pre id="geometryPrompt"></pre></div>
+          <div><label>NEGATIVE</label><pre id="negativePrompt"></pre></div>
+        </div>
+        <div id="jobStatus" class="job-status">Sẵn sàng.</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/studio/app.js"></script>
+</body>
+</html>

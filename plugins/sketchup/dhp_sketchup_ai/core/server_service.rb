@@ -1,11 +1,25 @@
 require 'socket'
 require 'json'
 require 'thread'
+require 'uri'
 
 module DaiHaiPhat
   module SketchUpAI
     module ServerService
       module_function
+
+      STUDIO_ROOT = File.expand_path('../local_studio', __dir__).freeze
+      MIME_TYPES = {
+        '.html' => 'text/html; charset=utf-8',
+        '.js' => 'application/javascript; charset=utf-8',
+        '.css' => 'text/css; charset=utf-8',
+        '.json' => 'application/json; charset=utf-8',
+        '.svg' => 'image/svg+xml',
+        '.png' => 'image/png',
+        '.jpg' => 'image/jpeg',
+        '.jpeg' => 'image/jpeg',
+        '.webp' => 'image/webp'
+      }.freeze
 
       def start
         return status if running?
@@ -37,16 +51,27 @@ module DaiHaiPhat
       end
 
       def status
-        { running: running?, port: @port, host: 'sketchup-ext', version: DaiHaiPhat::SketchUpAI::EXTENSION_VERSION }
+        { running: running?, port: @port, host: 'sketchup-ext', version: DaiHaiPhat::SketchUpAI::EXTENSION_VERSION, studio: local_studio_url }
+      end
+
+      def local_studio_url
+        return nil unless @port
+        "http://127.0.0.1:#{@port}/studio"
       end
 
       def launch_app
         start unless running?
-        base = DaiHaiPhat::SketchUpAI.app_url
+        configured = DaiHaiPhat::SketchUpAI.app_url
+        base = if configured.empty? || configured == DaiHaiPhat::SketchUpAI::DEFAULT_APP_URL
+                 local_studio_url
+               else
+                 configured
+               end
         sep = base.include?('?') ? '&' : '?'
         url = "#{base}#{sep}host=sketchup-ext&syncPort=#{@port}"
-        ModelService.open_external(url)
-        { url: url, port: @port }
+        opened = ModelService.open_external(url)
+        raise RuntimeError, 'Không thể mở LuxRender Studio.' unless opened
+        { url: url, port: @port, embedded: base == local_studio_url }
       end
 
       def serve_loop
@@ -65,7 +90,7 @@ module DaiHaiPhat
       def handle_client(client)
         request_line = client.gets
         return unless request_line
-        method, _path, _http = request_line.split(' ', 3)
+        method, raw_path, _http = request_line.split(' ', 3)
         headers = {}
         while (line = client.gets)
           line = line.strip
@@ -73,11 +98,16 @@ module DaiHaiPhat
           key, value = line.split(':', 2)
           headers[key.to_s.downcase] = value.to_s.strip
         end
+
+        path = request_path(raw_path)
         origin = allowed_origin(headers['origin'])
         return write_response(client, 204, '', origin) if method == 'OPTIONS'
+        return serve_studio_asset(client, path) if method == 'GET' && studio_path?(path)
         return write_json(client, 405, { error: 'Method not allowed' }, origin) unless %w[GET POST].include?(method)
         return write_json(client, 200, status, origin) if method == 'GET'
+
         length = headers.fetch('content-length', '0').to_i
+        raise ArgumentError, 'Payload quá lớn' if length > 25 * 1024 * 1024
         data = JSON.parse(length.positive? ? client.read(length).to_s : '{}')
         write_json(client, 200, dispatch(data['method'].to_s, data['params'] || {}), origin)
       rescue => e
@@ -86,10 +116,41 @@ module DaiHaiPhat
         client.close rescue nil
       end
 
+      def request_path(raw_path)
+        URI.parse(raw_path.to_s).path.to_s
+      rescue URI::InvalidURIError
+        raw_path.to_s.split('?', 2).first.to_s
+      end
+
+      def studio_path?(path)
+        path == '/studio' || path.start_with?('/studio/')
+      end
+
+      def serve_studio_asset(client, path)
+        relative = path.sub(%r{\A/studio/?}, '')
+        relative = 'index.html' if relative.empty?
+        decoded = URI.decode_www_form_component(relative)
+        raise ArgumentError, 'Đường dẫn không hợp lệ' if decoded.include?('..') || decoded.start_with?('/')
+        file = File.expand_path(decoded, STUDIO_ROOT)
+        raise ArgumentError, 'Đường dẫn không hợp lệ' unless file.start_with?(STUDIO_ROOT + File::SEPARATOR)
+        return write_response(client, 404, 'Not Found', nil) unless File.file?(file)
+        body = File.binread(file)
+        mime = MIME_TYPES.fetch(File.extname(file).downcase, 'application/octet-stream')
+        write_response(client, 200, body, nil, mime, cache: false)
+      end
+
       def allowed_origin(origin)
         return nil if origin.nil? || origin.empty?
+        local_origins = ["http://127.0.0.1:#{@port}", "http://localhost:#{@port}"]
+        return origin if local_origins.include?(origin)
+
         base = DaiHaiPhat::SketchUpAI.app_url
-        return origin if base.start_with?(origin) || %w[http://127.0.0.1:3000 http://localhost:3000].include?(origin)
+        return nil if base == DaiHaiPhat::SketchUpAI::DEFAULT_APP_URL
+        parsed = URI.parse(base)
+        expected = "#{parsed.scheme}://#{parsed.host}"
+        expected += ":#{parsed.port}" if parsed.port && ![80, 443].include?(parsed.port)
+        origin == expected ? origin : nil
+      rescue URI::InvalidURIError
         nil
       end
 
@@ -106,8 +167,22 @@ module DaiHaiPhat
         when 'lux_get_materials' then run_on_main { ModelService.materials }
         when 'lux_pick_dir', 'nbox_pick_dir' then run_on_main { ModelService.pick_dir }
         when 'lux_save_image', 'nbox_save_image' then run_on_main { ModelService.save_image(params) }
+        when 'lux_control_plane_status' then control_plane_status
         else { error: "method không hỗ trợ: #{method}" }
         end
+      end
+
+      def control_plane_status
+        configured = ControlPlaneClient.configured?
+        health = nil
+        if configured
+          begin
+            health = ControlPlaneClient.health
+          rescue StandardError => e
+            health = { error: e.message }
+          end
+        end
+        { configured: configured, health: health }
       end
 
       def run_on_main(timeout = 180, &block)
@@ -141,12 +216,14 @@ module DaiHaiPhat
         write_response(client, status_code, JSON.generate(payload), origin, 'application/json; charset=utf-8')
       end
 
-      def write_response(client, status_code, body, origin, content_type = 'text/plain; charset=utf-8')
-        reason = { 200 => 'OK', 204 => 'No Content', 405 => 'Method Not Allowed' }.fetch(status_code, 'OK')
+      def write_response(client, status_code, body, origin, content_type = 'text/plain; charset=utf-8', cache: true)
+        reason = { 200 => 'OK', 204 => 'No Content', 404 => 'Not Found', 405 => 'Method Not Allowed' }.fetch(status_code, 'OK')
         bytes = body.to_s.b
         client.write("HTTP/1.1 #{status_code} #{reason}\r\nContent-Type: #{content_type}\r\nContent-Length: #{bytes.bytesize}\r\n")
         client.write("Access-Control-Allow-Origin: #{origin}\r\nVary: Origin\r\n") if origin
-        client.write("Access-Control-Allow-Headers: Content-Type\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nConnection: close\r\n\r\n")
+        client.write("Access-Control-Allow-Headers: Content-Type\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\n")
+        client.write("Cache-Control: no-store\r\n") unless cache
+        client.write("X-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n")
         client.write(bytes) unless bytes.empty?
       end
     end

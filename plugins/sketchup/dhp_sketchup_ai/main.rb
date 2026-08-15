@@ -7,14 +7,16 @@ require_relative 'core/control_plane_client'
 
 module DaiHaiPhat
   module SketchUpAI
-    DEFAULT_APP_URL = 'http://127.0.0.1:3000'.freeze
+    DEFAULT_APP_URL = 'local://studio'.freeze
 
     def self.app_url
       Sketchup.read_default(EXTENSION_ID, 'app_url', DEFAULT_APP_URL).to_s
     end
 
     def self.app_url=(value)
-      Sketchup.write_default(EXTENSION_ID, 'app_url', value.to_s)
+      normalized = value.to_s.strip
+      normalized = DEFAULT_APP_URL if normalized.empty?
+      Sketchup.write_default(EXTENSION_ID, 'app_url', normalized)
     end
 
     def self.show
