@@ -22,7 +22,7 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION=$(ruby -ne "puts $1 if $_ =~ /EXTENSION_VERSION = '([^']+)'/" plugins/sketchup/dhp_sketchup_ai.rb | head -n1)
+          VERSION=$(grep -oE "EXTENSION_VERSION = '[^']+'" plugins/sketchup/dhp_sketchup_ai.rb | head -n1 | cut -d"'" -f2)
           test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
