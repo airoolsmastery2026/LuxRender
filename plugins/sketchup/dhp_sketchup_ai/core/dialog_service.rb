@@ -51,15 +51,13 @@ module DaiHaiPhat
         reply(id, false, { message: e.message, type: e.class.name }) if id
       end
 
-      # HtmlDialog callbacks already execute on SketchUp's UI thread. Model access
-      # stays direct; only network-bound AI calls are moved to a background thread.
       def handle_studio_rpc(json)
         request = JSON.parse(json.to_s)
         id = request['id']
         method = request['method'].to_s
         params = request['params'] || {}
 
-        if %w[lux_render_image lux_backend_health lux_local_runtime_start].include?(method)
+        if %w[lux_render_image lux_backend_health lux_local_runtime_start lux_local_runtime_diagnostics].include?(method)
           handle_async_studio_rpc(id, method, params)
           return
         end
@@ -79,7 +77,6 @@ module DaiHaiPhat
             UI.stop_timer(timer) if timer
             studio_reply(id, ok, payload)
           rescue ThreadError
-            # Worker has not completed yet; keep UI responsive.
           end
         end
 
@@ -89,6 +86,7 @@ module DaiHaiPhat
                      when 'lux_render_image' then RenderBackendClient.render_image(params)
                      when 'lux_backend_health' then RenderBackendClient.health
                      when 'lux_local_runtime_start' then LocalRuntimeService.start
+                     when 'lux_local_runtime_diagnostics' then LocalRuntimeService.diagnostics
                      else raise ArgumentError, "Method không hỗ trợ: #{method}"
                      end
             queue << [true, result]
