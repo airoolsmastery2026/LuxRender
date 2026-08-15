@@ -7,6 +7,7 @@ on:
     paths:
       - 'plugins/sketchup/dhp_sketchup_ai.rb'
       - 'plugins/sketchup/dhp_sketchup_ai/**'
+      - 'tools/local-render-bridge/**'
       - '.github/workflows/package-sketchup-rbz.yml'
 
 permissions:
@@ -32,6 +33,7 @@ jobs:
           ruby -c plugins/sketchup/dhp_sketchup_ai.rb
           find plugins/sketchup/dhp_sketchup_ai -name '*.rb' -print0 | xargs -0 -n1 ruby -c
           find plugins/sketchup/dhp_sketchup_ai -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check tools/local-render-bridge/server.mjs
 
       - name: Build RBZ
         shell: bash
