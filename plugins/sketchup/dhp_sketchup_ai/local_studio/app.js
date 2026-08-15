@@ -12,8 +12,32 @@ const state = {
 
 const RATIOS = ['16:9', '1:1', '4:3', '4:5', '5:4'];
 const GEOMETRY = ['strict', 'balanced', 'creative'];
+let nativeSeq = 0;
+const nativePending = new Map();
 
-async function rpc(method, params = {}) {
+window.LuxNativeResolve = (raw) => {
+  const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  const pending = nativePending.get(msg.id);
+  if (!pending) return;
+  nativePending.delete(msg.id);
+  if (msg.ok) pending.resolve(msg.payload);
+  else pending.reject(new Error((msg.payload && msg.payload.message) || 'SketchUp bridge error'));
+};
+
+function nativeRpc(method, params) {
+  return new Promise((resolve, reject) => {
+    const id = `lux-${Date.now()}-${++nativeSeq}`;
+    nativePending.set(id, { resolve, reject });
+    window.sketchup.lux_rpc(JSON.stringify({ id, method, params }));
+    window.setTimeout(() => {
+      if (!nativePending.has(id)) return;
+      nativePending.delete(id);
+      reject(new Error('SketchUp bridge timeout'));
+    }, 180000);
+  });
+}
+
+async function httpRpc(method, params) {
   const response = await fetch('/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -23,6 +47,13 @@ async function rpc(method, params = {}) {
   const payload = await response.json();
   if (payload && payload.error) throw new Error(payload.error);
   return payload;
+}
+
+async function rpc(method, params = {}) {
+  if (window.sketchup && typeof window.sketchup.lux_rpc === 'function') {
+    return nativeRpc(method, params);
+  }
+  return httpRpc(method, params);
 }
 
 function setBadge(el, label, mode = '') {
@@ -47,10 +78,12 @@ function renderRatioButtons() {
   root.replaceChildren();
   RATIOS.forEach((ratio) => {
     root.appendChild(button(ratio, state.aspectRatio === ratio, async () => {
-      state.aspectRatio = ratio;
-      renderRatioButtons();
-      await rpc('lux_set_aspect_ratio', { value: ratio });
-      setJobStatus(`Aspect ratio: ${ratio}`);
+      try {
+        state.aspectRatio = ratio;
+        renderRatioButtons();
+        await rpc('lux_set_aspect_ratio', { value: ratio });
+        setJobStatus(`Aspect ratio: ${ratio}`);
+      } catch (error) { setJobStatus(error.message || String(error)); }
     }));
   });
 }
@@ -84,7 +117,7 @@ function buildPromptBundle() {
 async function refresh() {
   try {
     const [status, model, camera, controlPlane] = await Promise.all([
-      fetch('/').then((r) => r.json()),
+      rpc('lux_status'),
       rpc('lux_get_model_info'),
       rpc('lux_get_camera'),
       rpc('lux_control_plane_status').catch(() => ({ configured: false })),
@@ -121,7 +154,7 @@ async function refresh() {
     renderRatioButtons();
     renderGeometryButtons();
     buildPromptBundle();
-    setJobStatus('Sẵn sàng. Local Studio đang chạy trực tiếp từ plugin, không cần npm/Vite.');
+    setJobStatus('Sẵn sàng. LuxRender Local Studio đang chạy native trong SketchUp.');
   } catch (error) {
     setBadge($('bridgeBadge'), 'Bridge lỗi', 'warn');
     setJobStatus(error.message || String(error));
@@ -138,9 +171,7 @@ async function capture() {
     $('emptyState').hidden = true;
     $('captureMeta').textContent = `${state.scene || 'Current View'} • ${state.aspectRatio} • FOV ${Math.round(state.fov)}°`;
     setJobStatus('Capture hoàn tất.');
-  } catch (error) {
-    setJobStatus(error.message || String(error));
-  }
+  } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
 async function loadScenePreviews() {
@@ -166,22 +197,15 @@ async function loadScenePreviews() {
       grid.appendChild(card);
     });
     setJobStatus(`Đã tạo ${previews.length} scene preview.`);
-  } catch (error) {
-    setJobStatus(error.message || String(error));
-  }
+  } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
 async function readContext() {
   try {
-    const [selection, materials] = await Promise.all([
-      rpc('lux_get_selection'),
-      rpc('lux_get_materials'),
-    ]);
+    const [selection, materials] = await Promise.all([rpc('lux_get_selection'), rpc('lux_get_materials')]);
     $('contextOutput').textContent = JSON.stringify({ selection, materials }, null, 2);
     setJobStatus(`Đã đọc ${selection.length} selection và ${materials.length} material.`);
-  } catch (error) {
-    setJobStatus(error.message || String(error));
-  }
+  } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
 async function saveSource() {
@@ -190,37 +214,22 @@ async function saveSource() {
     const safeScene = (state.scene || 'current-view').replace(/[^0-9A-Za-z_-]+/g, '-');
     const result = await rpc('lux_save_image', { dataUrl: state.sourceUrl, filename: `luxrender-${safeScene}.png` });
     setJobStatus(result.path ? `Đã lưu: ${result.path}` : 'Đã hủy lưu ảnh.');
-  } catch (error) {
-    setJobStatus(error.message || String(error));
-  }
+  } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
 function prepareRenderJob() {
   buildPromptBundle();
   if (!state.sourceUrl) return setJobStatus('Hãy Capture viewport trước khi chuẩn bị Render Job.');
-  if (!state.providerConfigured) {
-    setJobStatus('Render Job đã sẵn sàng về prompt/context. AI backend chưa cấu hình server-side nên chưa gửi job thật. Plugin không chứa API key.');
-    return;
-  }
-  setJobStatus('AI backend đã được cấu hình. Bước tiếp theo là nối endpoint media-job của Control Plane vào Local Studio.');
+  if (!state.providerConfigured) return setJobStatus('Render Job đã sẵn sàng về prompt/context. AI backend chưa cấu hình server-side; plugin không chứa API key.');
+  setJobStatus('AI backend đã cấu hình. Bước tiếp theo là gửi media-job qua Control Plane.');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('scene').addEventListener('change', (event) => {
-    state.scene = event.target.value;
-    buildPromptBundle();
-  });
-  $('fov').addEventListener('input', (event) => {
-    state.fov = Number(event.target.value);
-    $('fovValue').textContent = `${state.fov}°`;
-  });
+  $('scene').addEventListener('change', (event) => { state.scene = event.target.value; buildPromptBundle(); });
+  $('fov').addEventListener('input', (event) => { state.fov = Number(event.target.value); $('fovValue').textContent = `${state.fov}°`; });
   $('fov').addEventListener('change', async () => {
-    try {
-      await rpc('lux_set_field_of_view', { value: state.fov });
-      setJobStatus(`FOV: ${state.fov}°`);
-    } catch (error) {
-      setJobStatus(error.message || String(error));
-    }
+    try { await rpc('lux_set_field_of_view', { value: state.fov }); setJobStatus(`FOV: ${state.fov}°`); }
+    catch (error) { setJobStatus(error.message || String(error)); }
   });
   $('prompt').addEventListener('input', buildPromptBundle);
   $('capture').addEventListener('click', capture);
