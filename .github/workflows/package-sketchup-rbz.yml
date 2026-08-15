@@ -41,10 +41,14 @@ jobs:
           mkdir -p dist/rbz
           cp plugins/sketchup/dhp_sketchup_ai.rb dist/rbz/
           cp -R plugins/sketchup/dhp_sketchup_ai dist/rbz/
+          mkdir -p dist/rbz/dhp_sketchup_ai/local_runtime
+          cp tools/local-render-bridge/server.mjs dist/rbz/dhp_sketchup_ai/local_runtime/server.mjs
+          cp tools/local-render-bridge/README.md dist/rbz/dhp_sketchup_ai/local_runtime/README.md
           cd dist/rbz
           zip -qr "../DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz" dhp_sketchup_ai.rb dhp_sketchup_ai
           cd ../..
           unzip -t "dist/DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz"
+          unzip -l "dist/DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz" | grep 'dhp_sketchup_ai/local_runtime/server.mjs'
 
       - name: Upload RBZ artifact
         uses: actions/upload-artifact@v4
