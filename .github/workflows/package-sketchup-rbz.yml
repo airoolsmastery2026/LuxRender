@@ -1,0 +1,53 @@
+name: Package SketchUp RBZ
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/sketchup/dhp_sketchup_ai.rb'
+      - 'plugins/sketchup/dhp_sketchup_ai/**'
+      - '.github/workflows/package-sketchup-rbz.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read plugin version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(ruby -ne "puts $1 if $_ =~ /EXTENSION_VERSION = '([^']+)'/" plugins/sketchup/dhp_sketchup_ai.rb | head -n1)
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Ruby and JavaScript
+        shell: bash
+        run: |
+          ruby -c plugins/sketchup/dhp_sketchup_ai.rb
+          find plugins/sketchup/dhp_sketchup_ai -name '*.rb' -print0 | xargs -0 -n1 ruby -c
+          find plugins/sketchup/dhp_sketchup_ai -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Build RBZ
+        shell: bash
+        run: |
+          mkdir -p dist/rbz
+          cp plugins/sketchup/dhp_sketchup_ai.rb dist/rbz/
+          cp -R plugins/sketchup/dhp_sketchup_ai dist/rbz/
+          cd dist/rbz
+          zip -qr "../DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz" dhp_sketchup_ai.rb dhp_sketchup_ai
+          cd ../..
+          unzip -t "dist/DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz"
+
+      - name: Upload RBZ artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DHP-SketchUp-AI-v${{ steps.version.outputs.version }}
+          path: dist/DHP-SketchUp-AI-v${{ steps.version.outputs.version }}.rbz
+          if-no-files-found: error
+          retention-days: 30
