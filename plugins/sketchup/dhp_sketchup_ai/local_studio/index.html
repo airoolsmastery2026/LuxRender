@@ -53,21 +53,26 @@
 
       <section>
         <div class="section-title">AI Backend</div>
-        <input id="backendUrl" type="url" placeholder="https://your-luxrender-domain.vercel.app">
+        <input id="backendUrl" type="url" placeholder="https://lux-render.vercel.app">
         <div class="button-row">
           <button id="saveBackend">Lưu backend</button>
           <button id="testBackend">Kiểm tra</button>
         </div>
-        <div id="backendStatus" class="muted">Chưa cấu hình.</div>
+        <div id="backendStatus" class="muted">Đang kiểm tra.</div>
       </section>
 
       <section>
         <div class="section-title">SketchUp context</div>
         <div class="button-row">
           <button id="context">Đọc vật liệu / selection</button>
-          <button id="save">Lưu ảnh</button>
+          <button id="save">Lưu ảnh source</button>
         </div>
         <pre id="contextOutput" class="context-output">Chưa đọc context.</pre>
+      </section>
+
+      <section>
+        <div class="section-title">Project Render History</div>
+        <div id="versionList" class="version-list"><div class="muted">Chưa có render đã lưu.</div></div>
       </section>
     </aside>
 
@@ -91,11 +96,30 @@
               <div class="section-title">AI Render Result</div>
               <div id="renderMeta" class="muted">Chưa có render.</div>
             </div>
-            <button id="saveRender" class="small" disabled>Lưu render</button>
+            <div class="button-inline">
+              <button id="saveRender" class="small" disabled>Lưu file</button>
+              <button id="attachRender" class="small primary" disabled>Lưu vào dự án</button>
+            </div>
           </div>
           <div id="renderEmptyState" class="empty-state">Kết quả AI sẽ xuất hiện tại đây.</div>
           <img id="renderImage" class="source-image" hidden alt="LuxRender generated result">
         </div>
+      </div>
+
+      <div id="comparePanel" class="panel compare-panel" hidden>
+        <div class="row-between">
+          <div>
+            <div class="section-title">Before / After Compare</div>
+            <div class="muted">Kéo thanh để so sánh viewport gốc với version render đang chọn.</div>
+          </div>
+          <strong id="compareValue">50%</strong>
+        </div>
+        <div id="compareStage" class="compare-stage">
+          <img id="compareSource" alt="Before">
+          <div id="compareOverlay" class="compare-overlay"><img id="compareRender" alt="After"></div>
+          <div id="compareDivider" class="compare-divider"></div>
+        </div>
+        <input id="compareRange" type="range" min="0" max="100" value="50">
       </div>
 
       <div class="panel prompt-panel">

@@ -29,10 +29,10 @@ module DaiHaiPhat
           preferences_key: 'dhp_sketchup_ai.luxrender_studio',
           scrollable: true,
           resizable: true,
-          width: 1180,
-          height: 780,
-          min_width: 760,
-          min_height: 560,
+          width: 1220,
+          height: 820,
+          min_width: 800,
+          min_height: 580,
           style: UI::HtmlDialog::STYLE_DIALOG
         )
         @studio_dialog.set_file(File.join(__dir__, '..', 'local_studio', 'index.html'))
@@ -105,6 +105,7 @@ module DaiHaiPhat
             model: ModelService.model_info,
             camera: ModelService.camera,
             render_backend: RenderBackendClient.config,
+            render_history: ModelService.render_history,
             control_plane: { configured: ControlPlaneClient.configured? }
           }
         when 'lux_status' then ServerService.status
@@ -120,6 +121,9 @@ module DaiHaiPhat
         when 'lux_get_context' then { selection: ModelService.selection, materials: ModelService.materials }
         when 'lux_pick_dir' then ModelService.pick_dir
         when 'lux_save_image' then ModelService.save_image(params)
+        when 'lux_save_render_asset' then ModelService.save_render_asset(params)
+        when 'lux_render_history' then ModelService.render_history
+        when 'lux_load_render_asset' then ModelService.load_render_asset(params['path'])
         when 'lux_render_backend_config' then RenderBackendClient.config
         when 'lux_set_render_backend_url' then RenderBackendClient.configure(params['url'])
         when 'lux_control_plane_status' then { configured: ControlPlaneClient.configured? }
