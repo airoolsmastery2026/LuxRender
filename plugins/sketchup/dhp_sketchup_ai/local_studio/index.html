@@ -15,7 +15,7 @@
     </div>
     <div class="status-stack">
       <span id="bridgeBadge" class="badge ok">Bridge</span>
-      <span id="providerBadge" class="badge">AI provider</span>
+      <span id="providerBadge" class="badge">AI backend</span>
     </div>
   </header>
 
@@ -52,6 +52,16 @@
       </section>
 
       <section>
+        <div class="section-title">AI Backend</div>
+        <input id="backendUrl" type="url" placeholder="https://your-luxrender-domain.vercel.app">
+        <div class="button-row">
+          <button id="saveBackend">Lưu backend</button>
+          <button id="testBackend">Kiểm tra</button>
+        </div>
+        <div id="backendStatus" class="muted">Chưa cấu hình.</div>
+      </section>
+
+      <section>
         <div class="section-title">SketchUp context</div>
         <div class="button-row">
           <button id="context">Đọc vật liệu / selection</button>
@@ -62,25 +72,39 @@
     </aside>
 
     <section class="workspace">
-      <div class="canvas-card">
-        <div class="canvas-head">
-          <div>
-            <div class="section-title">Viewport Source</div>
-            <div id="captureMeta" class="muted">Capture trực tiếp từ SketchUp.</div>
+      <div class="compare-grid">
+        <div class="canvas-card">
+          <div class="canvas-head">
+            <div>
+              <div class="section-title">Viewport Source</div>
+              <div id="captureMeta" class="muted">Capture trực tiếp từ SketchUp.</div>
+            </div>
+            <button id="refresh" class="small">Refresh</button>
           </div>
-          <button id="refresh" class="small">Refresh</button>
+          <div id="emptyState" class="empty-state">Chọn Scene rồi bấm <b>Capture</b>.</div>
+          <img id="sourceImage" class="source-image" hidden alt="SketchUp source">
         </div>
-        <div id="emptyState" class="empty-state">Chọn Scene rồi bấm <b>Capture</b>.</div>
-        <img id="sourceImage" class="source-image" hidden alt="SketchUp source">
+
+        <div class="canvas-card">
+          <div class="canvas-head">
+            <div>
+              <div class="section-title">AI Render Result</div>
+              <div id="renderMeta" class="muted">Chưa có render.</div>
+            </div>
+            <button id="saveRender" class="small" disabled>Lưu render</button>
+          </div>
+          <div id="renderEmptyState" class="empty-state">Kết quả AI sẽ xuất hiện tại đây.</div>
+          <img id="renderImage" class="source-image" hidden alt="LuxRender generated result">
+        </div>
       </div>
 
       <div class="panel prompt-panel">
         <div class="row-between">
           <div>
-            <div class="section-title">Render handoff</div>
-            <div class="muted">Studio local không chứa API key. Render thật được thực thi bởi backend/Control Plane.</div>
+            <div class="section-title">Render Job</div>
+            <div class="muted">Provider key chỉ tồn tại ở backend. SketchUp gửi source + prompt bundle và nhận ảnh kết quả.</div>
           </div>
-          <button id="prepareJob" class="primary">Chuẩn bị Render Job</button>
+          <button id="prepareJob" class="primary">Render AI</button>
         </div>
         <div class="prompt-grid">
           <div><label>IMAGE PROMPT</label><pre id="imagePrompt"></pre></div>
