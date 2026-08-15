@@ -4,7 +4,7 @@ require 'extensions.rb'
 module DaiHaiPhat
   module SketchUpAI
     EXTENSION_NAME = 'DHP SketchUp AI'.freeze
-    EXTENSION_VERSION = '0.3.0'.freeze
+    EXTENSION_VERSION = '0.4.0'.freeze
     EXTENSION_ID = 'com.daihaiphat.sketchup_ai'.freeze
 
     unless file_loaded?(__FILE__)

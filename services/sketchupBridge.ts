@@ -1,4 +1,5 @@
 export type SketchUpScene = { name: string; index?: number };
+export type SketchUpScenePreview = SketchUpScene & { dataUrl: string };
 export type SketchUpStatus = {
   connected: boolean;
   running?: boolean;
@@ -49,9 +50,13 @@ export async function getSketchUpStatus(): Promise<SketchUpStatus> {
 export const sketchUpBridge = {
   status: getSketchUpStatus,
   scenes: () => request<SketchUpScene[]>('lux_get_scenes'),
-  captureScene: (name: string) => request<{ dataUrl: string }>('lux_capture_scene', { name }),
+  scenePreviews: () => request<SketchUpScenePreview[]>('lux_get_scene_previews'),
+  captureScene: (name: string, aspectRatio?: string) => request<{ dataUrl: string }>('lux_capture_scene', { name, aspectRatio }),
   modelInfo: () => request<Record<string, unknown>>('lux_get_model_info'),
   camera: () => request<Record<string, unknown>>('lux_get_camera'),
+  setAspectRatio: (value: string) => request<{ value: string }>('lux_set_aspect_ratio', { value }),
+  setFieldOfView: (value: number) => request<{ value: number }>('lux_set_field_of_view', { value }),
   selection: () => request<unknown[]>('lux_get_selection'),
   materials: () => request<unknown[]>('lux_get_materials'),
+  saveImage: (url: string, filename?: string) => request<{ path: string }>('lux_save_image', { url, filename }),
 };

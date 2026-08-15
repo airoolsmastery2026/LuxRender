@@ -96,9 +96,12 @@ module DaiHaiPhat
       def dispatch(method, params)
         case method
         when 'lux_get_scenes', 'nbox_get_scenes' then run_on_main { ModelService.scenes }
-        when 'lux_capture_scene', 'nbox_capture_scene' then run_on_main { { dataUrl: ModelService.capture_scene(params['name']) } }
+        when 'lux_get_scene_previews' then run_on_main { ModelService.scene_previews(params.fetch('width', 360), params.fetch('height', 220)) }
+        when 'lux_capture_scene', 'nbox_capture_scene' then run_on_main { { dataUrl: ModelService.capture_scene(params['name'], params['aspectRatio']) } }
         when 'lux_get_model_info' then run_on_main { ModelService.model_info }
         when 'lux_get_camera' then run_on_main { ModelService.camera }
+        when 'lux_set_aspect_ratio' then run_on_main { ModelService.set_aspect_ratio(params['value']) }
+        when 'lux_set_field_of_view' then run_on_main { ModelService.set_field_of_view(params['value']) }
         when 'lux_get_selection' then run_on_main { ModelService.selection }
         when 'lux_get_materials' then run_on_main { ModelService.materials }
         when 'lux_pick_dir', 'nbox_pick_dir' then run_on_main { ModelService.pick_dir }
