@@ -10,6 +10,8 @@ const state = {
   backendUrl: '',
   model: null,
   providerConfigured: false,
+  renderMeta: null,
+  history: [],
 };
 
 const RATIOS = ['16:9', '1:1', '4:3', '4:5', '5:4'];
@@ -67,7 +69,7 @@ function updateBackendUi(config) {
   state.backendUrl = config?.url || '';
   state.providerConfigured = !!config?.configured;
   $('backendUrl').value = state.backendUrl;
-  $('backendStatus').textContent = state.providerConfigured ? 'Backend đã lưu. Bấm Kiểm tra để xác nhận provider.' : 'Chưa cấu hình backend URL.';
+  $('backendStatus').textContent = state.backendUrl ? `Backend: ${state.backendUrl}` : 'Chưa cấu hình backend URL.';
   setBadge($('providerBadge'), state.providerConfigured ? 'AI backend configured' : 'AI backend chưa cấu hình', state.providerConfigured ? 'ok' : 'warn');
 }
 
@@ -120,16 +122,75 @@ function buildPromptBundle() {
   $('negativePrompt').textContent = 'warped walls, distorted perspective, duplicate furniture, floating objects, broken geometry, text artifacts, low-detail materials';
 }
 
+function updateCompare(value = Number($('compareRange').value || 50)) {
+  const safe = Math.max(0, Math.min(100, value));
+  $('compareValue').textContent = `${safe}%`;
+  $('compareOverlay').style.clipPath = `inset(0 ${100 - safe}% 0 0)`;
+  $('compareDivider').style.left = `${safe}%`;
+}
+
+function showRender(url, meta = {}) {
+  state.renderUrl = url;
+  state.renderMeta = meta;
+  $('renderImage').src = url;
+  $('renderImage').hidden = false;
+  $('renderEmptyState').hidden = true;
+  $('saveRender').disabled = false;
+  $('attachRender').disabled = false;
+  $('renderMeta').textContent = `${meta.provider || 'AI'} • ${meta.model || ''} • ${meta.aspectRatio || state.aspectRatio}`;
+
+  if (state.sourceUrl) {
+    $('compareSource').src = state.sourceUrl;
+    $('compareRender').src = url;
+    $('comparePanel').hidden = false;
+    updateCompare();
+  }
+}
+
+function renderHistoryList() {
+  const root = $('versionList');
+  root.replaceChildren();
+  if (!state.history.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = 'Chưa có render đã lưu cho model này.';
+    root.appendChild(empty);
+    return;
+  }
+
+  state.history.forEach((item, index) => {
+    const card = document.createElement('button');
+    card.className = 'version-item';
+    const title = document.createElement('strong');
+    title.textContent = `V${state.history.length - index} • ${item.scene || 'Current View'}`;
+    const meta = document.createElement('span');
+    const created = item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : '';
+    meta.textContent = `${item.provider || 'AI'} • ${item.aspectRatio || ''} • ${created}`;
+    card.append(title, meta);
+    card.addEventListener('click', async () => {
+      try {
+        setJobStatus('Đang tải render version từ project…');
+        const loaded = await rpc('lux_load_render_asset', { path: item.path });
+        showRender(loaded.dataUrl, item);
+        setJobStatus(`Đã mở ${item.filename || 'render version'}.`);
+      } catch (error) { setJobStatus(error.message || String(error)); }
+    });
+    root.appendChild(card);
+  });
+}
+
 async function refresh() {
   try {
     setJobStatus('Đang đồng bộ SketchUp…');
     const bootstrap = await rpc('lux_bootstrap');
-    const { status, model, camera, render_backend: renderBackend } = bootstrap;
+    const { status, model, camera, render_backend: renderBackend, render_history: renderHistory } = bootstrap;
 
     state.model = model;
     state.aspectRatio = model.aspect_ratio || state.aspectRatio;
     state.fov = Number(camera.fov || model.fov || 35);
+    state.history = Array.isArray(renderHistory) ? renderHistory : [];
     updateBackendUi(renderBackend || {});
+    renderHistoryList();
 
     $('modelMeta').textContent = `${model.title || 'Untitled'} • ${model.scenes.length} scene • ${model.materials_count} material • ${model.selection_count} selected • bridge :${status.port}`;
     setBadge($('bridgeBadge'), `Bridge :${status.port}`, 'ok');
@@ -157,6 +218,7 @@ async function refresh() {
     renderGeometryButtons();
     buildPromptBundle();
     setJobStatus('Sẵn sàng. Capture viewport rồi bấm Render AI.');
+    window.setTimeout(testBackend, 100);
   } catch (error) {
     setBadge($('bridgeBadge'), 'Bridge lỗi', 'warn');
     setJobStatus(error.message || String(error));
@@ -172,6 +234,11 @@ async function capture() {
     $('sourceImage').hidden = false;
     $('emptyState').hidden = true;
     $('captureMeta').textContent = `${state.scene || 'Current View'} • ${state.aspectRatio} • FOV ${Math.round(state.fov)}°`;
+    if (state.renderUrl) {
+      $('compareSource').src = state.sourceUrl;
+      $('comparePanel').hidden = false;
+      updateCompare();
+    }
     setJobStatus('Capture hoàn tất. Sẵn sàng Render AI.');
   } catch (error) { setJobStatus(error.message || String(error)); }
 }
@@ -221,6 +288,25 @@ async function saveImage(dataUrl, prefix) {
   } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
+async function attachRenderToProject() {
+  if (!state.renderUrl) return setJobStatus('Chưa có render để lưu vào dự án.');
+  try {
+    setJobStatus('Đang lưu render vào project SketchUp…');
+    const result = await rpc('lux_save_render_asset', {
+      dataUrl: state.renderUrl,
+      scene: state.scene || 'current-view',
+      provider: state.renderMeta?.provider || '',
+      model: state.renderMeta?.model || '',
+      aspectRatio: state.renderMeta?.aspectRatio || state.aspectRatio,
+      geometryLock: state.geometryLock,
+      prompt: $('imagePrompt').textContent,
+    });
+    state.history = result.history || [];
+    renderHistoryList();
+    setJobStatus(`Đã gắn render vào project: ${result.path}`);
+  } catch (error) { setJobStatus(error.message || String(error)); }
+}
+
 async function saveBackend() {
   try {
     const config = await rpc('lux_set_render_backend_url', { url: $('backendUrl').value.trim() });
@@ -265,14 +351,9 @@ async function renderAI() {
     });
     if (!result?.imageUrl) throw new Error('AI backend không trả về ảnh.');
 
-    state.renderUrl = result.imageUrl;
-    $('renderImage').src = state.renderUrl;
-    $('renderImage').hidden = false;
-    $('renderEmptyState').hidden = true;
-    $('saveRender').disabled = false;
-    $('renderMeta').textContent = `${result.provider || 'AI'} • ${result.model || ''} • ${result.aspectRatio || state.aspectRatio}`;
+    showRender(result.imageUrl, result);
     setBadge($('providerBadge'), result.provider || 'AI ready', 'ok');
-    setJobStatus('completed • AI Render hoàn tất.');
+    setJobStatus('completed • AI Render hoàn tất. Hãy Compare hoặc Lưu vào dự án.');
   } catch (error) {
     setJobStatus(`failed • ${error.message || String(error)}`);
   } finally {
@@ -293,9 +374,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('context').addEventListener('click', readContext);
   $('save').addEventListener('click', () => saveImage(state.sourceUrl, 'luxrender-source'));
   $('saveRender').addEventListener('click', () => saveImage(state.renderUrl, 'luxrender-render'));
+  $('attachRender').addEventListener('click', attachRenderToProject);
   $('saveBackend').addEventListener('click', saveBackend);
   $('testBackend').addEventListener('click', testBackend);
   $('refresh').addEventListener('click', refresh);
   $('prepareJob').addEventListener('click', renderAI);
+  $('compareRange').addEventListener('input', (event) => updateCompare(Number(event.target.value)));
   window.setTimeout(refresh, 50);
 });
