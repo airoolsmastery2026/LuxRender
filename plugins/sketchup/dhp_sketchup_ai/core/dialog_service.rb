@@ -59,7 +59,7 @@ module DaiHaiPhat
         method = request['method'].to_s
         params = request['params'] || {}
 
-        if %w[lux_render_image lux_backend_health].include?(method)
+        if %w[lux_render_image lux_backend_health lux_local_runtime_start].include?(method)
           handle_async_studio_rpc(id, method, params)
           return
         end
@@ -79,7 +79,7 @@ module DaiHaiPhat
             UI.stop_timer(timer) if timer
             studio_reply(id, ok, payload)
           rescue ThreadError
-            # Network worker has not completed yet; keep UI responsive.
+            # Worker has not completed yet; keep UI responsive.
           end
         end
 
@@ -88,6 +88,7 @@ module DaiHaiPhat
             result = case method
                      when 'lux_render_image' then RenderBackendClient.render_image(params)
                      when 'lux_backend_health' then RenderBackendClient.health
+                     when 'lux_local_runtime_start' then LocalRuntimeService.start
                      else raise ArgumentError, "Method không hỗ trợ: #{method}"
                      end
             queue << [true, result]
@@ -106,6 +107,7 @@ module DaiHaiPhat
             camera: ModelService.camera,
             render_backend: RenderBackendClient.config,
             render_history: ModelService.render_history,
+            local_runtime: LocalRuntimeService.status,
             control_plane: { configured: ControlPlaneClient.configured? }
           }
         when 'lux_status' then ServerService.status
@@ -126,6 +128,9 @@ module DaiHaiPhat
         when 'lux_load_render_asset' then ModelService.load_render_asset(params['path'])
         when 'lux_render_backend_config' then RenderBackendClient.config
         when 'lux_set_render_backend_url' then RenderBackendClient.configure(params['url'])
+        when 'lux_local_runtime_status' then LocalRuntimeService.status
+        when 'lux_local_runtime_stop' then LocalRuntimeService.stop
+        when 'lux_local_runtime_log' then LocalRuntimeService.open_log
         when 'lux_control_plane_status' then { configured: ControlPlaneClient.configured? }
         else raise ArgumentError, "Method không hỗ trợ: #{method}"
         end
