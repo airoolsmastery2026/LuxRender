@@ -108,6 +108,29 @@ async function refreshLocalRuntimeStatus() {
   }
 }
 
+async function runLocalDiagnostics() {
+  const button = $('diagnoseLocalRuntime');
+  if (button) button.disabled = true;
+  try {
+    setJobStatus('Đang chạy Local AI Self-Test…');
+    const result = await rpc('lux_local_runtime_diagnostics');
+    const output = $('localDiagnostics');
+    if (output) {
+      const lines = (result.checks || []).map((item) => `${item.ok ? 'PASS' : 'FAIL'} • ${item.id} • ${item.message}`);
+      output.textContent = [result.summary || '', ...lines].filter(Boolean).join('\n');
+      output.hidden = false;
+    }
+    if ($('localRuntimeStatus')) $('localRuntimeStatus').textContent = localRuntimeLabel(result.status);
+    setJobStatus(result.ready ? 'Local AI Self-Test PASS • hệ local đã sẵn sàng.' : 'Local AI Self-Test chưa PASS • xem mục FAIL để xử lý.');
+    return result;
+  } catch (error) {
+    setJobStatus(`Self-Test lỗi • ${error.message || String(error)}`);
+    throw error;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function startLocalRuntime() {
   const button = $('startLocalRuntime');
   if (button) button.disabled = true;
@@ -157,17 +180,26 @@ function installLocalRuntimeControls() {
   start.textContent = 'Khởi động Local AI';
   const check = document.createElement('button');
   check.id = 'checkLocalRuntime';
-  check.textContent = 'Kiểm tra Local';
-  row.append(start, check);
+  check.textContent = 'Kiểm tra';
+  const diagnose = document.createElement('button');
+  diagnose.id = 'diagnoseLocalRuntime';
+  diagnose.textContent = 'Self-Test';
+  row.append(start, check, diagnose);
 
   const status = document.createElement('div');
   status.id = 'localRuntimeStatus';
   status.className = 'muted';
   status.textContent = 'Đang kiểm tra Local AI…';
 
-  backendSection.append(title, row, status);
+  const diagnostics = document.createElement('pre');
+  diagnostics.id = 'localDiagnostics';
+  diagnostics.className = 'context-output';
+  diagnostics.hidden = true;
+
+  backendSection.append(title, row, status, diagnostics);
   start.addEventListener('click', () => startLocalRuntime().catch((error) => setJobStatus(error.message || String(error))));
   check.addEventListener('click', refreshLocalRuntimeStatus);
+  diagnose.addEventListener('click', () => runLocalDiagnostics().catch(() => {}));
   window.setTimeout(refreshLocalRuntimeStatus, 150);
 }
 
