@@ -19,15 +19,19 @@ module DaiHaiPhat
 
         bridge_running = port_alive?('127.0.0.1', 8787)
         comfy_running = port_alive?('127.0.0.1', 8188)
+        launcher = comfy_launcher
         {
           ready: false,
           bridge_running: bridge_running,
           comfy_running: comfy_running,
+          comfy_launcher: launcher,
           node: node_command,
           message: if bridge_running && !comfy_running
-                     'Local Bridge đang chạy; ComfyUI chưa chạy ở 127.0.0.1:8188.'
+                     launcher ? 'Local Bridge đang chạy; ComfyUI đang khởi động hoặc chưa sẵn sàng.' : 'Local Bridge đang chạy; chưa tìm thấy ComfyUI trên máy.'
                    elsif bridge_running
-                     'Local Bridge + ComfyUI đang chạy nhưng chưa có checkpoint tương thích.'
+                     'Local Bridge + ComfyUI đã chạy nhưng chưa có checkpoint tương thích.'
+                   elsif !comfy_running && !launcher
+                     'Chưa tìm thấy ComfyUI. Cài ComfyUI + checkpoint một lần để dùng Local AI.'
                    else
                      'Local Bridge chưa chạy.'
                    end
@@ -37,6 +41,8 @@ module DaiHaiPhat
       def start
         current = status
         return current.merge(started: false) if current[:ready]
+
+        start_comfyui_if_available unless current[:comfy_running]
         return current.merge(started: false) if current[:bridge_running]
 
         node = node_command
@@ -61,26 +67,14 @@ module DaiHaiPhat
         )
         Process.detach(@pid)
 
-        15.times do
-          sleep 0.2
+        30.times do
+          sleep 0.25
           bridge = get_json("#{BRIDGE_URL}/api/health", 0.8)
           return normalize_bridge_status(bridge).merge(started: true, pid: @pid, log: @log_file) if bridge
-          if port_alive?('127.0.0.1', 8787)
-            current = status
-            return current.merge(started: true, pid: @pid, log: @log_file)
-          end
         end
 
-        {
-          ready: false,
-          bridge_running: port_alive?('127.0.0.1', 8787),
-          comfy_running: port_alive?('127.0.0.1', 8188),
-          node: node,
-          started: true,
-          pid: @pid,
-          log: @log_file,
-          message: 'Bridge đã được khởi động nhưng chưa sẵn sàng. Bấm Kiểm tra Local AI hoặc xem log.'
-        }
+        current = status
+        current.merge(started: true, pid: @pid, log: @log_file)
       ensure
         log.close if defined?(log) && log && !log.closed?
       end
@@ -120,6 +114,41 @@ module DaiHaiPhat
         output.empty? ? nil : output
       rescue
         nil
+      end
+
+      def comfy_launcher
+        configured = ENV['LUXRENDER_COMFY_LAUNCHER'].to_s.strip
+        return configured if !configured.empty? && File.file?(configured)
+
+        home = ENV['USERPROFILE'].to_s
+        local = ENV['LOCALAPPDATA'].to_s
+        candidates = [
+          File.join(home, 'ComfyUI_windows_portable', 'run_nvidia_gpu.bat'),
+          File.join(home, 'ComfyUI_windows_portable', 'run_cpu.bat'),
+          File.join(home, 'Desktop', 'ComfyUI_windows_portable', 'run_nvidia_gpu.bat'),
+          File.join(home, 'Downloads', 'ComfyUI_windows_portable', 'run_nvidia_gpu.bat'),
+          File.join(home, 'Downloads', 'ComfyUI_windows_portable', 'run_cpu.bat'),
+          File.join(local, 'Programs', 'ComfyUI', 'ComfyUI.exe'),
+          File.join(local, 'ComfyUI', 'ComfyUI.exe')
+        ]
+        candidates.find { |path| !path.empty? && File.file?(path) }
+      end
+
+      def start_comfyui_if_available
+        return { started: false, running: true } if port_alive?('127.0.0.1', 8188)
+        launcher = comfy_launcher
+        return { started: false, running: false, found: false } unless launcher
+
+        if File.extname(launcher).downcase == '.bat'
+          pid = Process.spawn('cmd.exe', '/c', launcher, chdir: File.dirname(launcher), out: File::NULL, err: File::NULL, new_pgroup: true)
+        else
+          pid = Process.spawn(launcher, chdir: File.dirname(launcher), out: File::NULL, err: File::NULL, new_pgroup: true)
+        end
+        Process.detach(pid)
+        @comfy_pid = pid
+        { started: true, running: false, found: true, launcher: launcher, pid: pid }
+      rescue => e
+        { started: false, running: false, found: true, launcher: launcher, error: e.message }
       end
 
       def normalize_bridge_status(payload)
