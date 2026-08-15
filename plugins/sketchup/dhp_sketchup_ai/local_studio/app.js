@@ -6,6 +6,8 @@ const state = {
   fov: 35,
   geometryLock: 'strict',
   sourceUrl: '',
+  renderUrl: '',
+  backendUrl: '',
   model: null,
   providerConfigured: false,
 };
@@ -33,7 +35,7 @@ function nativeRpc(method, params) {
       if (!nativePending.has(id)) return;
       nativePending.delete(id);
       reject(new Error('SketchUp bridge timeout'));
-    }, 180000);
+    }, 300000);
   });
 }
 
@@ -59,8 +61,14 @@ function setBadge(el, label, mode = '') {
   el.className = `badge ${mode}`.trim();
 }
 
-function setJobStatus(message) {
-  $('jobStatus').textContent = message;
+function setJobStatus(message) { $('jobStatus').textContent = message; }
+
+function updateBackendUi(config) {
+  state.backendUrl = config?.url || '';
+  state.providerConfigured = !!config?.configured;
+  $('backendUrl').value = state.backendUrl;
+  $('backendStatus').textContent = state.providerConfigured ? 'Backend đã lưu. Bấm Kiểm tra để xác nhận provider.' : 'Chưa cấu hình backend URL.';
+  setBadge($('providerBadge'), state.providerConfigured ? 'AI backend configured' : 'AI backend chưa cấu hình', state.providerConfigured ? 'ok' : 'warn');
 }
 
 function button(text, active, onClick) {
@@ -116,16 +124,15 @@ async function refresh() {
   try {
     setJobStatus('Đang đồng bộ SketchUp…');
     const bootstrap = await rpc('lux_bootstrap');
-    const { status, model, camera, control_plane: controlPlane } = bootstrap;
+    const { status, model, camera, render_backend: renderBackend } = bootstrap;
 
     state.model = model;
     state.aspectRatio = model.aspect_ratio || state.aspectRatio;
     state.fov = Number(camera.fov || model.fov || 35);
-    state.providerConfigured = !!(controlPlane && controlPlane.configured);
+    updateBackendUi(renderBackend || {});
 
     $('modelMeta').textContent = `${model.title || 'Untitled'} • ${model.scenes.length} scene • ${model.materials_count} material • ${model.selection_count} selected • bridge :${status.port}`;
     setBadge($('bridgeBadge'), `Bridge :${status.port}`, 'ok');
-    setBadge($('providerBadge'), state.providerConfigured ? 'AI backend configured' : 'AI backend chưa cấu hình', state.providerConfigured ? 'ok' : 'warn');
 
     const select = $('scene');
     select.replaceChildren();
@@ -149,7 +156,7 @@ async function refresh() {
     renderRatioButtons();
     renderGeometryButtons();
     buildPromptBundle();
-    setJobStatus('Sẵn sàng. Native RPC không dùng queue nên không khóa SketchUp.');
+    setJobStatus('Sẵn sàng. Capture viewport rồi bấm Render AI.');
   } catch (error) {
     setBadge($('bridgeBadge'), 'Bridge lỗi', 'warn');
     setJobStatus(error.message || String(error));
@@ -165,7 +172,7 @@ async function capture() {
     $('sourceImage').hidden = false;
     $('emptyState').hidden = true;
     $('captureMeta').textContent = `${state.scene || 'Current View'} • ${state.aspectRatio} • FOV ${Math.round(state.fov)}°`;
-    setJobStatus('Capture hoàn tất.');
+    setJobStatus('Capture hoàn tất. Sẵn sàng Render AI.');
   } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
@@ -205,20 +212,72 @@ async function readContext() {
   } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
-async function saveSource() {
-  if (!state.sourceUrl) return setJobStatus('Chưa có ảnh để lưu.');
+async function saveImage(dataUrl, prefix) {
+  if (!dataUrl) return setJobStatus('Chưa có ảnh để lưu.');
   try {
     const safeScene = (state.scene || 'current-view').replace(/[^0-9A-Za-z_-]+/g, '-');
-    const result = await rpc('lux_save_image', { dataUrl: state.sourceUrl, filename: `luxrender-${safeScene}.png` });
+    const result = await rpc('lux_save_image', { dataUrl, filename: `${prefix}-${safeScene}.png` });
     setJobStatus(result.path ? `Đã lưu: ${result.path}` : 'Đã hủy lưu ảnh.');
   } catch (error) { setJobStatus(error.message || String(error)); }
 }
 
-function prepareRenderJob() {
+async function saveBackend() {
+  try {
+    const config = await rpc('lux_set_render_backend_url', { url: $('backendUrl').value.trim() });
+    updateBackendUi(config);
+    setJobStatus(config.configured ? 'Đã lưu LuxRender backend.' : 'Đã xóa cấu hình backend.');
+  } catch (error) { setJobStatus(error.message || String(error)); }
+}
+
+async function testBackend() {
+  try {
+    setJobStatus('Đang kiểm tra AI backend…');
+    const health = await rpc('lux_backend_health');
+    const ready = health?.imageProvider && health.imageProvider !== 'unconfigured';
+    $('backendStatus').textContent = ready ? `Sẵn sàng • ${health.imageProvider} • ${health.imageModel}` : 'Backend chạy nhưng provider key chưa được cấu hình.';
+    setBadge($('providerBadge'), ready ? health.imageProvider : 'Provider chưa cấu hình', ready ? 'ok' : 'warn');
+    state.providerConfigured = ready;
+    setJobStatus(ready ? 'AI backend sẵn sàng.' : 'Backend online nhưng chưa có provider key server-side.');
+  } catch (error) {
+    state.providerConfigured = false;
+    setBadge($('providerBadge'), 'AI backend lỗi', 'warn');
+    $('backendStatus').textContent = error.message || String(error);
+    setJobStatus(error.message || String(error));
+  }
+}
+
+async function renderAI() {
   buildPromptBundle();
-  if (!state.sourceUrl) return setJobStatus('Hãy Capture viewport trước khi chuẩn bị Render Job.');
-  if (!state.providerConfigured) return setJobStatus('Render Job đã sẵn sàng về prompt/context. AI backend chưa cấu hình server-side; plugin không chứa API key.');
-  setJobStatus('AI backend đã cấu hình. Bước tiếp theo là gửi media-job qua Control Plane.');
+  if (!state.sourceUrl) return setJobStatus('Hãy Capture viewport trước khi Render AI.');
+  if (!state.backendUrl) return setJobStatus('Hãy nhập và lưu LuxRender Backend URL trước.');
+
+  const renderButton = $('prepareJob');
+  renderButton.disabled = true;
+  try {
+    setJobStatus('queued → analyzing → generating…');
+    const result = await rpc('lux_render_image', {
+      sourceDataUrl: state.sourceUrl,
+      imagePrompt: $('imagePrompt').textContent,
+      geometryInstruction: $('geometryPrompt').textContent,
+      negativePrompt: $('negativePrompt').textContent,
+      aspectRatio: state.aspectRatio,
+      imageSize: '1K',
+    });
+    if (!result?.imageUrl) throw new Error('AI backend không trả về ảnh.');
+
+    state.renderUrl = result.imageUrl;
+    $('renderImage').src = state.renderUrl;
+    $('renderImage').hidden = false;
+    $('renderEmptyState').hidden = true;
+    $('saveRender').disabled = false;
+    $('renderMeta').textContent = `${result.provider || 'AI'} • ${result.model || ''} • ${result.aspectRatio || state.aspectRatio}`;
+    setBadge($('providerBadge'), result.provider || 'AI ready', 'ok');
+    setJobStatus('completed • AI Render hoàn tất.');
+  } catch (error) {
+    setJobStatus(`failed • ${error.message || String(error)}`);
+  } finally {
+    renderButton.disabled = false;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -232,8 +291,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('capture').addEventListener('click', capture);
   $('loadScenes').addEventListener('click', loadScenePreviews);
   $('context').addEventListener('click', readContext);
-  $('save').addEventListener('click', saveSource);
+  $('save').addEventListener('click', () => saveImage(state.sourceUrl, 'luxrender-source'));
+  $('saveRender').addEventListener('click', () => saveImage(state.renderUrl, 'luxrender-render'));
+  $('saveBackend').addEventListener('click', saveBackend);
+  $('testBackend').addEventListener('click', testBackend);
   $('refresh').addEventListener('click', refresh);
-  $('prepareJob').addEventListener('click', prepareRenderJob);
+  $('prepareJob').addEventListener('click', renderAI);
   window.setTimeout(refresh, 50);
 });

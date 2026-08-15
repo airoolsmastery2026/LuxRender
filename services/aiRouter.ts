@@ -7,6 +7,8 @@ export type RenderRequest = {
   prompt: PromptBundle;
   width?: number;
   height?: number;
+  aspectRatio?: string;
+  imageSize?: '1K' | '2K';
 };
 
 export type RenderResult = {
@@ -35,14 +37,41 @@ const mockLocalProvider: RenderProvider = {
   },
 };
 
+const serverProvider: RenderProvider = {
+  id: 'server',
+  async generateImage(request) {
+    const response = await fetch('/api/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceDataUrl: request.sourceUrl,
+        imagePrompt: request.prompt.imagePrompt,
+        geometryInstruction: request.prompt.geometryInstruction,
+        negativePrompt: request.prompt.negativePrompt,
+        aspectRatio: request.aspectRatio || '16:9',
+        imageSize: request.imageSize || '1K',
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error || `Render API HTTP ${response.status}`);
+    if (!payload?.imageUrl) throw new Error('Render API returned no image.');
+
+    return {
+      provider: 'server',
+      imageUrl: payload.imageUrl,
+      metadata: {
+        model: payload.model,
+        aspectRatio: payload.aspectRatio,
+        ...(payload.metadata || {}),
+      },
+    };
+  },
+};
+
 const providers: Record<RenderProviderId, RenderProvider> = {
   'mock-local': mockLocalProvider,
-  server: {
-    id: 'server',
-    async generateImage() {
-      throw new Error('Server render provider chưa được cấu hình. Provider keys phải nằm ở backend, không nằm trong client.');
-    },
-  },
+  server: serverProvider,
 };
 
 export function getRenderProvider(id: RenderProviderId = 'mock-local'): RenderProvider {

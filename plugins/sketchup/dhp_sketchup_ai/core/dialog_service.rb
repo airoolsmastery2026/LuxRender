@@ -1,4 +1,5 @@
 require 'json'
+require 'thread'
 
 module DaiHaiPhat
   module SketchUpAI
@@ -50,16 +51,50 @@ module DaiHaiPhat
         reply(id, false, { message: e.message, type: e.class.name }) if id
       end
 
-      # HtmlDialog callbacks already execute on SketchUp's main thread. Never route
-      # these calls through ServerService.run_on_main, otherwise the main thread
-      # waits on a queue that only the same main thread can drain.
+      # HtmlDialog callbacks already execute on SketchUp's UI thread. Model access
+      # stays direct; only network-bound AI calls are moved to a background thread.
       def handle_studio_rpc(json)
         request = JSON.parse(json.to_s)
         id = request['id']
-        result = native_dispatch(request['method'].to_s, request['params'] || {})
+        method = request['method'].to_s
+        params = request['params'] || {}
+
+        if %w[lux_render_image lux_backend_health].include?(method)
+          handle_async_studio_rpc(id, method, params)
+          return
+        end
+
+        result = native_dispatch(method, params)
         studio_reply(id, true, result)
       rescue => e
         studio_reply(id, false, { message: e.message, type: e.class.name }) if id
+      end
+
+      def handle_async_studio_rpc(id, method, params)
+        queue = Queue.new
+        timer = nil
+        timer = UI.start_timer(0.05, true) do
+          begin
+            ok, payload = queue.pop(true)
+            UI.stop_timer(timer) if timer
+            studio_reply(id, ok, payload)
+          rescue ThreadError
+            # Network worker has not completed yet; keep UI responsive.
+          end
+        end
+
+        Thread.new do
+          begin
+            result = case method
+                     when 'lux_render_image' then RenderBackendClient.render_image(params)
+                     when 'lux_backend_health' then RenderBackendClient.health
+                     else raise ArgumentError, "Method không hỗ trợ: #{method}"
+                     end
+            queue << [true, result]
+          rescue => e
+            queue << [false, { message: e.message, type: e.class.name }]
+          end
+        end
       end
 
       def native_dispatch(method, params)
@@ -69,6 +104,7 @@ module DaiHaiPhat
             status: ServerService.status,
             model: ModelService.model_info,
             camera: ModelService.camera,
+            render_backend: RenderBackendClient.config,
             control_plane: { configured: ControlPlaneClient.configured? }
           }
         when 'lux_status' then ServerService.status
@@ -84,6 +120,8 @@ module DaiHaiPhat
         when 'lux_get_context' then { selection: ModelService.selection, materials: ModelService.materials }
         when 'lux_pick_dir' then ModelService.pick_dir
         when 'lux_save_image' then ModelService.save_image(params)
+        when 'lux_render_backend_config' then RenderBackendClient.config
+        when 'lux_set_render_backend_url' then RenderBackendClient.configure(params['url'])
         when 'lux_control_plane_status' then { configured: ControlPlaneClient.configured? }
         else raise ArgumentError, "Method không hỗ trợ: #{method}"
         end

@@ -4,6 +4,7 @@ require_relative 'core/model_service'
 require_relative 'core/dialog_service'
 require_relative 'core/server_service'
 require_relative 'core/control_plane_client'
+require_relative 'core/render_backend_client'
 
 module DaiHaiPhat
   module SketchUpAI
