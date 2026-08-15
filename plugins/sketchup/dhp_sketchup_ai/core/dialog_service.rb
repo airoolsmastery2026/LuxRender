@@ -17,6 +17,30 @@ module DaiHaiPhat
         @dialog.show
       end
 
+      def show_studio
+        if @studio_dialog && @studio_dialog.visible?
+          @studio_dialog.bring_to_front
+          return { mode: 'native-dialog', visible: true }
+        end
+
+        @studio_dialog = UI::HtmlDialog.new(
+          dialog_title: 'LuxRender Local Studio',
+          preferences_key: 'dhp_sketchup_ai.luxrender_studio',
+          scrollable: true,
+          resizable: true,
+          width: 1180,
+          height: 780,
+          min_width: 760,
+          min_height: 560,
+          style: UI::HtmlDialog::STYLE_DIALOG
+        )
+        @studio_dialog.set_file(File.join(__dir__, '..', 'local_studio', 'index.html'))
+        @studio_dialog.add_action_callback('lux_rpc') { |_ctx, json| handle_studio_rpc(json) }
+        @studio_dialog.set_on_closed { @studio_dialog = nil }
+        @studio_dialog.show
+        { mode: 'native-dialog', visible: true }
+      end
+
       def handle_rpc(json)
         request = JSON.parse(json.to_s)
         id = request['id']
@@ -24,6 +48,15 @@ module DaiHaiPhat
         reply(id, true, result)
       rescue => e
         reply(id, false, { message: e.message, type: e.class.name }) if id
+      end
+
+      def handle_studio_rpc(json)
+        request = JSON.parse(json.to_s)
+        id = request['id']
+        result = ServerService.dispatch(request['method'].to_s, request['params'] || {})
+        studio_reply(id, true, result)
+      rescue => e
+        studio_reply(id, false, { message: e.message, type: e.class.name }) if id
       end
 
       def dispatch(method, params)
@@ -49,6 +82,12 @@ module DaiHaiPhat
         return unless @dialog
         json = JSON.generate({ id: id, ok: ok, payload: payload })
         @dialog.execute_script("window.DHPBridge && window.DHPBridge._resolve(#{JSON.generate(json)})")
+      end
+
+      def studio_reply(id, ok, payload)
+        return unless @studio_dialog
+        json = JSON.generate({ id: id, ok: ok, payload: payload })
+        @studio_dialog.execute_script("window.LuxNativeResolve && window.LuxNativeResolve(#{JSON.generate(json)})")
       end
     end
   end
