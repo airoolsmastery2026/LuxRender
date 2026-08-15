@@ -14,6 +14,13 @@ const MAX_SOURCE_BYTES = 12 * 1024 * 1024;
 const MAX_PROMPT_CHARS = 16_000;
 const PROVIDER_TIMEOUT_MS = 220_000;
 
+function applyCors(res: any) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Cache-Control', 'no-store');
+}
+
 function parseDataUrl(value: string) {
   const match = /^data:([^;]+);base64,(.+)$/s.exec(value || '');
   if (!match) throw new Error('sourceDataUrl must be a base64 data URL.');
@@ -56,9 +63,12 @@ function isAuthorized(req: any) {
 }
 
 export default async function handler(req: any, res: any) {
-  res.setHeader('Cache-Control', 'no-store');
+  applyCors(res);
+
+  if (req.method === 'OPTIONS') return res.status(204).end();
+
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
+    res.setHeader('Allow', 'POST, OPTIONS');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -126,7 +136,7 @@ export default async function handler(req: any, res: any) {
       model,
       aspectRatio,
       imageUrl: `data:${image.mimeType};base64,${image.data}`,
-      metadata: { imageSize, sourceMimeType: source.mimeType },
+      metadata: { imageSize, sourceMimeType: source.mimeType, transport: 'https-browser' },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

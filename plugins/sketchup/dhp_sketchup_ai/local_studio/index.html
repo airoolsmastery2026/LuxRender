@@ -126,7 +126,7 @@
         <div class="row-between">
           <div>
             <div class="section-title">Render Job</div>
-            <div class="muted">Provider key chỉ tồn tại ở backend. SketchUp gửi source + prompt bundle và nhận ảnh kết quả.</div>
+            <div class="muted">Provider key chỉ tồn tại ở backend. Studio dùng Chromium HTTPS để tránh lỗi Ruby TCP/TLS trên Windows.</div>
           </div>
           <button id="prepareJob" class="primary">Render AI</button>
         </div>
@@ -141,5 +141,6 @@
   </main>
 
   <script src="./app.js"></script>
+  <script src="./browser_backend.js"></script>
 </body>
 </html>
