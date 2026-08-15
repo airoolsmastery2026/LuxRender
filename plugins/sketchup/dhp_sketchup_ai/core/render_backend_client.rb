@@ -7,6 +7,7 @@ module DaiHaiPhat
     module RenderBackendClient
       module_function
 
+      DEFAULT_URL = 'https://lux-render.vercel.app'.freeze
       OPEN_TIMEOUT = 10
       READ_TIMEOUT = 240
 
@@ -15,11 +16,12 @@ module DaiHaiPhat
       end
 
       def config
-        { configured: configured?, url: base_url }
+        { configured: configured?, url: base_url, default: DEFAULT_URL }
       end
 
       def configure(url)
         normalized = normalize_url(url)
+        normalized = DEFAULT_URL if normalized.empty?
         Sketchup.write_default(EXTENSION_ID, 'render_backend_url', normalized)
         config
       end
@@ -35,7 +37,14 @@ module DaiHaiPhat
       def base_url
         env = ENV['LUXRENDER_BACKEND_URL'].to_s.strip
         saved = Sketchup.read_default(EXTENSION_ID, 'render_backend_url', '').to_s.strip
-        (env.empty? ? saved : env).sub(%r{/$}, '')
+        selected = if !env.empty?
+                     env
+                   elsif !saved.empty?
+                     saved
+                   else
+                     DEFAULT_URL
+                   end
+        selected.sub(%r{/$}, '')
       end
 
       def normalize_url(value)
