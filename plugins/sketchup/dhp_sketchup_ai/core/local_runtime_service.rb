@@ -47,11 +47,11 @@ module DaiHaiPhat
 
         log_dir = File.join(ENV['LOCALAPPDATA'].to_s.empty? ? Dir.tmpdir : ENV['LOCALAPPDATA'], 'DaiHaiPhat', 'LuxRender')
         FileUtils.mkdir_p(log_dir)
-        log_file = File.join(log_dir, 'local-runtime.log')
-        log = File.open(log_file, 'a')
+        @log_file = File.join(log_dir, 'local-runtime.log')
+        log = File.open(@log_file, 'a')
         log.sync = true
 
-        pid = Process.spawn(
+        @pid = Process.spawn(
           node,
           bridge_file,
           chdir: File.dirname(bridge_file),
@@ -59,17 +59,15 @@ module DaiHaiPhat
           err: log,
           new_pgroup: true
         )
-        Process.detach(pid)
-        Sketchup.write_default(EXTENSION_ID, 'local_runtime_pid', pid)
-        Sketchup.write_default(EXTENSION_ID, 'local_runtime_log', log_file)
+        Process.detach(@pid)
 
         15.times do
           sleep 0.2
           bridge = get_json("#{BRIDGE_URL}/api/health", 0.8)
-          return normalize_bridge_status(bridge).merge(started: true, pid: pid, log: log_file) if bridge
+          return normalize_bridge_status(bridge).merge(started: true, pid: @pid, log: @log_file) if bridge
           if port_alive?('127.0.0.1', 8787)
             current = status
-            return current.merge(started: true, pid: pid, log: log_file)
+            return current.merge(started: true, pid: @pid, log: @log_file)
           end
         end
 
@@ -79,8 +77,8 @@ module DaiHaiPhat
           comfy_running: port_alive?('127.0.0.1', 8188),
           node: node,
           started: true,
-          pid: pid,
-          log: log_file,
+          pid: @pid,
+          log: @log_file,
           message: 'Bridge đã được khởi động nhưng chưa sẵn sàng. Bấm Kiểm tra Local AI hoặc xem log.'
         }
       ensure
@@ -88,20 +86,19 @@ module DaiHaiPhat
       end
 
       def stop
-        pid = Sketchup.read_default(EXTENSION_ID, 'local_runtime_pid', nil)
-        if pid
+        if @pid
           begin
-            Process.kill('KILL', pid.to_i)
+            Process.kill('KILL', @pid.to_i)
           rescue Errno::ESRCH, Errno::EINVAL
             # Process already stopped.
           end
         end
-        Sketchup.write_default(EXTENSION_ID, 'local_runtime_pid', nil)
+        @pid = nil
         { stopped: true, ready: false, message: 'Đã dừng LuxRender Local Bridge.' }
       end
 
       def open_log
-        path = Sketchup.read_default(EXTENSION_ID, 'local_runtime_log', '').to_s
+        path = @log_file.to_s
         return { opened: false, message: 'Chưa có log Local Runtime.' } if path.empty? || !File.file?(path)
         UI.openURL("file:///#{path.tr('\\', '/')}")
         { opened: true, path: path }
