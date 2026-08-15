@@ -5,6 +5,7 @@ require_relative 'core/dialog_service'
 require_relative 'core/server_service'
 require_relative 'core/control_plane_client'
 require_relative 'core/render_backend_client'
+require_relative 'core/local_runtime_service'
 
 module DaiHaiPhat
   module SketchUpAI
@@ -30,6 +31,14 @@ module DaiHaiPhat
       cmd.status_bar_text = 'Open DHP SketchUp AI / LuxRender panel'
       UI.menu('Extensions').add_item(cmd)
       UI.menu('Extensions').add_item('Open LuxRender') { ServerService.launch_app }
+      UI.menu('Extensions').add_item('Start LuxRender Local AI') do
+        begin
+          result = LocalRuntimeService.start
+          UI.messagebox(result[:message].to_s)
+        rescue => e
+          UI.messagebox("LuxRender Local AI: #{e.message}")
+        end
+      end
       toolbar = UI::Toolbar.new('DHP SketchUp AI')
       toolbar.add_item(cmd)
       toolbar.restore
