@@ -51,13 +51,20 @@ async function comfyFetch(path, options = {}) {
   return response;
 }
 
-async function resolveCheckpoint() {
-  if (CHECKPOINT) return CHECKPOINT;
+async function checkpoints() {
   const response = await comfyFetch('/object_info/CheckpointLoaderSimple');
   const payload = await response.json();
   const names = payload?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0];
-  if (!Array.isArray(names) || !names.length) {
-    throw new Error('ComfyUI has no checkpoint. Put a compatible checkpoint in ComfyUI/models/checkpoints.');
+  return Array.isArray(names) ? names.filter(Boolean) : [];
+}
+
+async function resolveCheckpoint(preferred = '') {
+  const names = await checkpoints();
+  if (!names.length) throw new Error('ComfyUI has no checkpoint. Put a compatible checkpoint in ComfyUI/models/checkpoints.');
+  const requested = String(preferred || CHECKPOINT || '').trim();
+  if (requested) {
+    if (!names.includes(requested)) throw new Error(`Requested checkpoint is not installed: ${requested}`);
+    return requested;
   }
   return names[0];
 }
@@ -130,11 +137,7 @@ async function waitForOutput(promptId) {
 }
 
 async function fetchOutputImage(image) {
-  const params = new URLSearchParams({
-    filename: image.filename,
-    subfolder: image.subfolder || '',
-    type: image.type || 'output'
-  });
+  const params = new URLSearchParams({ filename: image.filename, subfolder: image.subfolder || '', type: image.type || 'output' });
   const response = await comfyFetch(`/view?${params}`);
   const mimeType = response.headers.get('content-type') || 'image/png';
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -143,6 +146,8 @@ async function fetchOutputImage(image) {
 
 async function health() {
   await comfyFetch('/system_stats');
+  const availableCheckpoints = await checkpoints();
+  if (!availableCheckpoints.length) throw new Error('ComfyUI has no checkpoint. Put a compatible checkpoint in ComfyUI/models/checkpoints.');
   const checkpoint = await resolveCheckpoint();
   return {
     ok: true,
@@ -150,6 +155,7 @@ async function health() {
     provider: 'comfyui',
     comfyUrl: COMFY_URL,
     checkpoint,
+    checkpoints: availableCheckpoints,
     transport: 'localhost'
   };
 }
@@ -157,17 +163,14 @@ async function health() {
 async function render(body) {
   if (!body?.sourceDataUrl || !body?.imagePrompt) throw new Error('sourceDataUrl and imagePrompt are required.');
   const source = parseDataUrl(body.sourceDataUrl);
-  const checkpoint = await resolveCheckpoint();
+  const checkpoint = await resolveCheckpoint(body.checkpoint);
   const uploadedImage = await uploadSource(source);
   const positive = [
     body.imagePrompt,
     body.geometryInstruction ? `Geometry constraints: ${body.geometryInstruction}` : '',
     'Photorealistic architectural visualization, realistic materials, physically plausible lighting, preserve source camera and spatial proportions.'
   ].filter(Boolean).join('\n');
-  const negative = [
-    body.negativePrompt || '',
-    'warped architecture, broken perspective, duplicate objects, floating objects, text, watermark'
-  ].filter(Boolean).join(', ');
+  const negative = [body.negativePrompt || '', 'warped architecture, broken perspective, duplicate objects, floating objects, text, watermark'].filter(Boolean).join(', ');
   const workflow = buildWorkflow({ checkpoint, uploadedImage, positive, negative });
   const promptId = await queueWorkflow(workflow);
   const output = await waitForOutput(promptId);
@@ -187,6 +190,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || `${HOST}:${PORT}`}`);
   try {
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, await health());
+    if (req.method === 'GET' && url.pathname === '/api/checkpoints') return json(res, 200, { ok: true, checkpoints: await checkpoints() });
     if (req.method === 'POST' && url.pathname === '/api/render') return json(res, 200, await render(await readJson(req)));
     return json(res, 404, { error: 'Not found' });
   } catch (error) {
