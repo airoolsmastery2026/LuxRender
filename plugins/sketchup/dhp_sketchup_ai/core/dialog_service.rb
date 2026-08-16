@@ -129,6 +129,8 @@ module DaiHaiPhat
         when 'lux_local_runtime_status' then LocalRuntimeService.status
         when 'lux_local_runtime_stop' then LocalRuntimeService.stop
         when 'lux_local_runtime_log' then LocalRuntimeService.open_log
+        when 'lux_local_open_setup' then LocalRuntimeService.open_comfy_setup
+        when 'lux_local_open_models' then LocalRuntimeService.open_model_dir
         when 'lux_control_plane_status' then { configured: ControlPlaneClient.configured? }
         else raise ArgumentError, "Method không hỗ trợ: #{method}"
         end
